@@ -2,17 +2,17 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs').promises;
 
 /**
- * Модуль для генерации PDF из заполненной формы
+ * Module for generating PDFs from submitted forms
  * @module pdf-generator
  */
 
 class PDFGenerator {
   /**
-   * Генерирует PDF документ из данных формы
-   * @param {Object} formData - Данные формы
-   * @param {Array} signatures - Массив подписей с данными
-   * @param {string} outputPath - Путь для сохранения PDF
-   * @returns {Promise<string>} Путь к сохраненному PDF
+   * Generates a PDF document from form data
+   * @param {Object} formData - Submitted form data
+   * @param {Array} signatures - Signatures metadata
+   * @param {string} outputPath - Output path for the PDF file
+   * @returns {Promise<string>} Path to the generated PDF file
    */
   static async generate(formData, signatures = {}, outputPath = null) {
     return new Promise((resolve, reject) => {
@@ -20,30 +20,30 @@ class PDFGenerator {
         const doc = new PDFDocument({ margin: 50 });
         const fileName = outputPath || `generated/form_${Date.now()}.pdf`;
         
-        // Создаем директорию если не существует
+        // Create output directory if it does not exist
         fs.mkdir('generated', { recursive: true }).then(() => {
           const stream = fs.createWriteStream(fileName);
           doc.pipe(stream);
 
-          // Заголовок документа
+          // Document heading
           doc.fontSize(20)
              .fillColor('#667eea')
              .text('PDF Generator', { align: 'center' })
              .moveDown();
 
-          // Дата и время создания
+          // Creation timestamp
           doc.fontSize(10)
              .fillColor('#64748b')
-             .text(`Дата создания: ${new Date().toLocaleString('ru-RU')}`, { align: 'center' })
+             .text(`Created: ${new Date().toLocaleString('en-US')}`, { align: 'center' })
              .moveDown(2);
 
-          // Содержимое формы
+          // Form content
           doc.fontSize(14)
              .fillColor('#000000')
-             .text('Содержимое формы:', { underline: true })
+             .text('Form content:', { underline: true })
              .moveDown();
 
-          // Обрабатываем поля формы
+          // Render scalar fields
           for (const [key, value] of Object.entries(formData)) {
             if (key.startsWith('signature_')) continue;
             
@@ -58,15 +58,15 @@ class PDFGenerator {
             doc.moveDown(0.5);
           }
 
-          // Добавляем подписи
+          // Render signatures
           if (signatures && Object.keys(signatures).length > 0) {
             doc.moveDown(2);
             doc.fontSize(14)
                .fillColor('#000000')
-               .text('Подписи:', { underline: true })
+               .text('Signatures:', { underline: true })
                .moveDown();
 
-            const signatureTime = new Date().toLocaleString('ru-RU');
+            const signatureTime = new Date().toLocaleString('en-US');
             
             for (const [signer, signatureData] of Object.entries(signatures)) {
               doc.fontSize(12)
@@ -74,7 +74,7 @@ class PDFGenerator {
                  .text(`${signer}:`)
                  .moveDown(0.3);
 
-              // Вставляем изображение подписи если есть
+              // Render signature image if available
               if (signatureData && signatureData.startsWith('data:image')) {
                 try {
                   const base64Data = signatureData.split(',')[1];
@@ -84,19 +84,19 @@ class PDFGenerator {
                     align: 'left'
                   });
                 } catch (err) {
-                  console.error('Ошибка вставки изображения подписи:', err);
+                  console.error('Failed to embed signature image:', err);
                 }
               }
 
               doc.fontSize(10)
                  .fillColor('#94a3b8')
-                 .text(`Время подписания: ${signatureTime}`);
+                 .text(`Signed at: ${signatureTime}`);
               
               doc.moveDown(2);
             }
           }
 
-          // Финализируем PDF
+          // Finalise the PDF output
           doc.end();
 
           stream.on('finish', () => {
@@ -114,8 +114,8 @@ class PDFGenerator {
   }
 
   /**
-   * Проверяет, что PDF файл корректно создан
-   * @param {string} filePath - Путь к PDF файлу
+   * Checks that the generated PDF file exists and is not empty
+   * @param {string} filePath - Path to the PDF file
    * @returns {Promise<boolean>}
    */
   static async validatePDF(filePath) {

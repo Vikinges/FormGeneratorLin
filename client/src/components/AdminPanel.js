@@ -15,12 +15,12 @@ function AdminPanel({ onLogout }) {
     e.preventDefault();
 
     if (newPassword !== confirmPassword) {
-      setMessage({ type: 'error', text: 'Пароли не совпадают' });
+      setMessage({ type: 'error', text: 'Passwords do not match' });
       return;
     }
 
     if (newPassword.length < 6) {
-      setMessage({ type: 'error', text: 'Пароль должен содержать минимум 6 символов' });
+      setMessage({ type: 'error', text: 'Password must contain at least 6 characters' });
       return;
     }
 
@@ -30,12 +30,12 @@ function AdminPanel({ onLogout }) {
     const result = await authService.changePassword(email, newPassword);
 
     if (result.ok) {
-      setMessage({ type: 'success', text: 'Пароль успешно изменен!' });
+      setMessage({ type: 'success', text: 'Password updated successfully!' });
       setEmail('');
       setNewPassword('');
       setConfirmPassword('');
     } else {
-      setMessage({ type: 'error', text: result.error || 'Ошибка изменения пароля' });
+      setMessage({ type: 'error', text: result.error || 'Failed to change password' });
     }
 
     setLoading(false);
@@ -45,13 +45,13 @@ function AdminPanel({ onLogout }) {
     <div className="admin-panel">
       <div className="admin-header">
         <div className="admin-header-content">
-          <h1>⚙️ Административная панель</h1>
+          <h1>⚙️ Admin Console</h1>
           <div className="header-actions">
             <button className="btn btn-secondary" onClick={() => navigate('/')}>
-              ← Назад к формам
+              ← Back to forms
             </button>
             <button className="btn btn-secondary" onClick={onLogout}>
-              Выход
+              Sign out
             </button>
           </div>
         </div>
@@ -59,9 +59,9 @@ function AdminPanel({ onLogout }) {
 
       <div className="admin-content">
         <div className="admin-card">
-          <h2>Смена пароля</h2>
+          <h2>Password reset</h2>
           <p className="admin-description">
-            Измените пароль администратора и укажите email для восстановления
+            Update the administrator password and provide a recovery email
           </p>
 
           {message && (
@@ -84,46 +84,46 @@ function AdminPanel({ onLogout }) {
             </div>
 
             <div className="form-group">
-              <label>Новый пароль</label>
+              <label>New password</label>
               <input
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Минимум 6 символов"
+                placeholder="At least 6 characters"
                 className="input"
                 required
               />
             </div>
 
             <div className="form-group">
-              <label>Подтвердите пароль</label>
+              <label>Confirm password</label>
               <input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Повторите пароль"
+                placeholder="Repeat password"
                 className="input"
                 required
               />
             </div>
 
             <button type="submit" className="btn btn-primary" disabled={loading}>
-              {loading ? 'Сохранение...' : '💾 Сохранить изменения'}
+              {loading ? 'Saving…' : '💾 Save changes'}
             </button>
           </form>
         </div>
 
         <div className="admin-info">
-          <h3>📋 Информация о системе</h3>
+          <h3>📋 System info</h3>
           <div className="info-grid">
             <div className="info-item">
-              <strong>Текущий пользователь:</strong> admin
+              <strong>Current user:</strong> admin
             </div>
             <div className="info-item">
-              <strong>Версия:</strong> 1.0.0
+              <strong>Version:</strong> 1.0.0
             </div>
             <div className="info-item">
-              <strong>Статус:</strong> <span className="status-ok">✓ Активен</span>
+              <strong>Status:</strong> <span className="status-ok">✓ Active</span>
             </div>
           </div>
         </div>

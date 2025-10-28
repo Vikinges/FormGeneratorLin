@@ -116,7 +116,7 @@ button {
   100% { transform: rotate(360deg); }
 }
 
-/* Адаптивность для мобильных устройств */
+/* Responsive adjustments for mobile devices */
 @media (max-width: 768px) {
   .container {
     padding: 0 16px;

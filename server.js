@@ -9,31 +9,31 @@ const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3002;
+const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'default-secret-change-in-production';
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Проверяем наличие собранного клиента
+// Serve built client if it exists
 const publicExists = fs.existsSync('client/dist');
 const staticPath = publicExists ? 'client/dist' : 'public';
-console.log(`📁 Статические файлы из: ${staticPath}`);
+console.log(`📁 Serving static files from: ${staticPath}`);
 app.use(express.static(staticPath));
 
-// Настройка multer для загрузки файлов
+// Multer configuration for file uploads
 const upload = multer({ dest: 'uploads/' });
 
-// Подключение к базе данных
+// SQLite database connection
 const db = new sqlite3.Database('./database.db');
 
-// Инициализация базы данных
+// Initialise database schema
 initializeDatabase();
 
 function initializeDatabase() {
   db.serialize(() => {
-    // Таблица пользователей (администраторы)
+    // Users table (administrators)
     db.run(`CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
@@ -42,7 +42,7 @@ function initializeDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Таблица шаблонов форм
+    // Form templates table
     db.run(`CREATE TABLE IF NOT EXISTS form_templates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -52,7 +52,7 @@ function initializeDatabase() {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )`);
 
-    // Таблица заполненных форм
+    // Submitted forms table
     db.run(`CREATE TABLE IF NOT EXISTS filled_forms (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       template_id INTEGER NOT NULL,
@@ -64,25 +64,25 @@ function initializeDatabase() {
       FOREIGN KEY (template_id) REFERENCES form_templates(id)
     )`);
 
-    // Создаем администратора по умолчанию
+    // Seed default administrator credentials
     const hashedPassword = bcrypt.hashSync('admin', 10);
     db.run(`INSERT OR IGNORE INTO users (username, email, password) VALUES (?, ?, ?)`,
       ['admin', 'admin@example.com', hashedPassword]);
   });
 }
 
-// Middleware для проверки JWT
+// Middleware to verify JWT tokens
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.status(401).json({ ok: false, error: 'Требуется авторизация' });
+    return res.status(401).json({ ok: false, error: 'Authentication required' });
   }
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) {
-      return res.status(403).json({ ok: false, error: 'Недействительный токен' });
+      return res.status(403).json({ ok: false, error: 'Invalid token' });
     }
     req.user = user;
     next();
@@ -99,21 +99,21 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Авторизация
+// Authentication
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
 
   db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
     if (err) {
-      return res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+      return res.status(500).json({ ok: false, error: 'Server error' });
     }
 
     if (!user) {
-      return res.status(401).json({ ok: false, error: 'Неверные учетные данные' });
+      return res.status(401).json({ ok: false, error: 'Invalid credentials' });
     }
 
     if (!bcrypt.compareSync(password, user.password)) {
-      return res.status(401).json({ ok: false, error: 'Неверные учетные данные' });
+      return res.status(401).json({ ok: false, error: 'Invalid credentials' });
     }
 
     const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
@@ -121,13 +121,13 @@ app.post('/api/auth/login', async (req, res) => {
   });
 });
 
-// Смена пароля
+// Change password
 app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
   const { email, newPassword } = req.body;
   const userId = req.user.id;
 
   if (!newPassword || newPassword.length < 6) {
-    return res.status(400).json({ ok: false, error: 'Пароль должен содержать минимум 6 символов' });
+    return res.status(400).json({ ok: false, error: 'Password must be at least 6 characters long' });
   }
 
   const hashedPassword = bcrypt.hashSync(newPassword, 10);
@@ -136,58 +136,58 @@ app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
     [email, hashedPassword, userId], 
     function(err) {
       if (err) {
-        return res.status(500).json({ ok: false, error: 'Ошибка обновления пароля' });
+        return res.status(500).json({ ok: false, error: 'Failed to update password' });
       }
-      res.json({ ok: true, message: 'Пароль успешно изменен' });
+      res.json({ ok: true, message: 'Password updated' });
     }
   );
 });
 
-// Получить все шаблоны форм
+// Fetch all form templates
 app.get('/api/forms', (req, res) => {
   db.all('SELECT * FROM form_templates ORDER BY created_at DESC', (err, forms) => {
     if (err) {
-      return res.status(500).json({ ok: false, error: 'Ошибка получения форм' });
+      return res.status(500).json({ ok: false, error: 'Failed to fetch forms' });
     }
     res.json({ ok: true, forms });
   });
 });
 
-// Получить шаблон формы
+// Fetch single form template
 app.get('/api/forms/:id', (req, res) => {
   const { id } = req.params;
 
   db.get('SELECT * FROM form_templates WHERE id = ?', [id], (err, form) => {
     if (err) {
-      return res.status(500).json({ ok: false, error: 'Ошибка получения формы' });
+      return res.status(500).json({ ok: false, error: 'Failed to fetch form' });
     }
     if (!form) {
-      return res.status(404).json({ ok: false, error: 'Форма не найдена' });
+      return res.status(404).json({ ok: false, error: 'Form not found' });
     }
     res.json({ ok: true, form });
   });
 });
 
-// Создать новый шаблон формы (только админ)
+// Create new form template (admin only)
 app.post('/api/forms', authenticateToken, (req, res) => {
   const { name, description, content } = req.body;
 
   if (!name || !content) {
-    return res.status(400).json({ ok: false, error: 'Название и содержимое обязательны' });
+    return res.status(400).json({ ok: false, error: 'Name and content are required' });
   }
 
   db.run('INSERT INTO form_templates (name, description, content) VALUES (?, ?, ?)',
     [name, description, JSON.stringify(content)],
     function(err) {
       if (err) {
-        return res.status(500).json({ ok: false, error: 'Ошибка создания формы' });
+        return res.status(500).json({ ok: false, error: 'Failed to create form' });
       }
       res.json({ ok: true, id: this.lastID });
     }
   );
 });
 
-// Обновить шаблон формы (только админ)
+// Update form template (admin only)
 app.put('/api/forms/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   const { name, description, content } = req.body;
@@ -196,38 +196,38 @@ app.put('/api/forms/:id', authenticateToken, (req, res) => {
     [name, description, JSON.stringify(content), id],
     function(err) {
       if (err) {
-        return res.status(500).json({ ok: false, error: 'Ошибка обновления формы' });
+        return res.status(500).json({ ok: false, error: 'Failed to update form' });
       }
       if (this.changes === 0) {
-        return res.status(404).json({ ok: false, error: 'Форма не найдена' });
+        return res.status(404).json({ ok: false, error: 'Form not found' });
       }
       res.json({ ok: true });
     }
   );
 });
 
-// Удалить шаблон формы (только админ)
+// Delete form template (admin only)
 app.delete('/api/forms/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
 
   db.run('DELETE FROM form_templates WHERE id = ?', [id], function(err) {
     if (err) {
-      return res.status(500).json({ ok: false, error: 'Ошибка удаления формы' });
+      return res.status(500).json({ ok: false, error: 'Failed to delete form' });
     }
     if (this.changes === 0) {
-      return res.status(404).json({ ok: false, error: 'Форма не найдена' });
+      return res.status(404).json({ ok: false, error: 'Form not found' });
     }
     res.json({ ok: true });
   });
 });
 
-// Сохранить заполненную форму
+// Store submitted form data
 app.post('/api/forms/:id/fill', upload.any(), (req, res) => {
   const { id } = req.params;
   const data = JSON.parse(req.body.data || '{}');
   const uploadedFiles = req.files || [];
 
-  // Обработка загруженных файлов
+  // Process uploaded files
   const filePaths = uploadedFiles.map(file => ({
     field: file.fieldname,
     path: `/uploads/${file.filename}`,
@@ -238,14 +238,14 @@ app.post('/api/forms/:id/fill', upload.any(), (req, res) => {
     [id, JSON.stringify({ ...data, files: filePaths })],
     function(err) {
       if (err) {
-        return res.status(500).json({ ok: false, error: 'Ошибка сохранения формы' });
+        return res.status(500).json({ ok: false, error: 'Failed to store form submission' });
       }
       res.json({ ok: true, id: this.lastID });
     }
   );
 });
 
-// Подписать форму
+// Sign submitted form
 app.post('/api/forms/:id/sign', (req, res) => {
   const { id } = req.params;
   const { signatures } = req.body;
@@ -254,18 +254,18 @@ app.post('/api/forms/:id/sign', (req, res) => {
     [JSON.stringify(signatures), id],
     function(err) {
       if (err) {
-        return res.status(500).json({ ok: false, error: 'Ошибка подписания формы' });
+        return res.status(500).json({ ok: false, error: 'Failed to sign form' });
       }
 
-      // Здесь будет генерироваться PDF
-      // TODO: вызвать функцию генерации PDF
+      // PDF generation placeholder
+      // TODO: invoke PDF generation routine
 
       res.json({ ok: true });
     }
   );
 });
 
-// Fallback для React Router - ДОЛЖЕН быть после всех API роутов
+// React Router fallback (must stay after API routes)
 if (publicExists) {
   app.get('*', (req, res) => {
     try {
@@ -276,11 +276,11 @@ if (publicExists) {
   });
 }
 
-// Запуск сервера
+// Start server
 app.listen(PORT, () => {
-  console.log(`📋 PDF Generator сервер запущен на http://localhost:${PORT}`);
-  console.log(`📁 Статические файлы из: ${staticPath}`);
-  console.log(`💡 Откройте браузер и перейдите по адресу http://localhost:${PORT}`);
+  console.log(`📋 PDF Generator server running at http://localhost:${PORT}`);
+  console.log(`📁 Serving static files from: ${staticPath}`);
+  console.log(`💡 Open your browser and navigate to http://localhost:${PORT}`);
 });
 
 // Graceful shutdown

@@ -127,15 +127,21 @@
   min-height: 60px;
 }
 
-.form-canvas-grid {
-  background: white;
+.form-canvas-scroll {
+  overflow: auto;
+  max-height: 600px;
+  border: 1px solid #e2e8f0;
   border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.form-canvas-grid {
+  position: relative;
   padding: 32px;
   min-height: 800px;
   min-width: 1000px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  position: relative;
-  overflow: visible;
+  background: #ffffff;
 }
 
 .drop-indicator {
@@ -155,13 +161,17 @@
 }
 
 .field-container {
+  position: relative;
   background: white;
   border: 2px solid #cbd5e1;
   border-radius: 8px;
   padding: 12px;
-  min-width: 200px;
+  width: 100%;
+  height: 100%;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
 }
 
 .field-container:hover {
@@ -230,31 +240,60 @@
   transform: scale(1.1);
 }
 
-.field-resize {
+.field-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.field-content-wrapper {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid #e2e8f0;
+  justify-content: flex-start;
+  transform-origin: top left;
+  pointer-events: auto;
 }
 
-.btn-resize {
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+.checkbox-field input {
+  width: 16px;
+  height: 16px;
+}
+
+.photo-upload-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
   color: #64748b;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: all 0.2s;
-  font-weight: bold;
-  flex: 1;
+  font-size: 14px;
+  background: #f8fafc;
 }
 
-.btn-resize:hover {
-  background: #e2e8f0;
-  color: #475569;
+.generic-field-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  color: #94a3b8;
+  font-size: 13px;
 }
 
 .btn-debug {
@@ -284,14 +323,24 @@
   border: 2px dashed #cbd5e1;
   border-radius: 8px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   padding: 12px;
 }
 
 .signature-canvas canvas {
   border: 1px solid #e2e8f0;
   cursor: crosshair;
+  background: #ffffff;
+}
+
+.signature-hint {
+  font-size: 12px;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .canvas-controls {
@@ -311,6 +360,44 @@
 
 .canvas-controls input[type="checkbox"] {
   cursor: pointer;
+}
+
+.resize-handle {
+  position: absolute;
+  background: rgba(102, 126, 234, 0.5);
+  border-radius: 4px;
+  transition: opacity 0.2s;
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.field-container:hover .resize-handle {
+  opacity: 1;
+}
+
+.resize-handle-right {
+  top: 20px;
+  bottom: 28px;
+  right: -4px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.resize-handle-bottom {
+  left: 20px;
+  right: 28px;
+  bottom: -4px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.resize-handle-corner {
+  width: 16px;
+  height: 16px;
+  right: -6px;
+  bottom: -6px;
+  cursor: nwse-resize;
+  background: rgba(79, 70, 229, 0.8);
 }
 
 @media (max-width: 1024px) {

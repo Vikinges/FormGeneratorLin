@@ -1,7 +1,30 @@
 import axios from 'axios';
 import { authService } from './authService';
 
-const API_URL = '';
+const resolveApiUrl = () => {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  if (window.API_BASE_URL) {
+    return window.API_BASE_URL;
+  }
+
+  if (typeof process !== 'undefined' && process.env?.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+
+  if (window.location.hostname === 'localhost') {
+    const port =
+      (typeof process !== 'undefined' && process.env?.REACT_APP_API_PORT) ||
+      '3001';
+    return `${window.location.protocol}//${window.location.hostname}:${port}`;
+  }
+
+  return '';
+};
+
+const API_URL = resolveApiUrl();
 
 class FormService {
   async getForms() {
@@ -9,7 +32,7 @@ class FormService {
       const response = await axios.get(`${API_URL}/api/forms`);
       return response.data;
     } catch (error) {
-      return { ok: false, error: error.response?.data?.error || 'Ошибка получения форм' };
+      return { ok: false, error: error.response?.data?.error || 'Failed to load forms' };
     }
   }
 
@@ -18,14 +41,14 @@ class FormService {
       const response = await axios.get(`${API_URL}/api/forms/${id}`);
       return response.data;
     } catch (error) {
-      return { ok: false, error: error.response?.data?.error || 'Ошибка получения формы' };
+      return { ok: false, error: error.response?.data?.error || 'Failed to load form' };
     }
   }
 
   async saveForm(formData) {
     const token = localStorage.getItem('token');
     if (!token) {
-      return { ok: false, error: 'Необходима авторизация' };
+      return { ok: false, error: 'Authentication required' };
     }
 
     try {
@@ -41,14 +64,14 @@ class FormService {
       );
       return response.data;
     } catch (error) {
-      return { ok: false, error: error.response?.data?.error || 'Ошибка сохранения формы' };
+      return { ok: false, error: error.response?.data?.error || 'Failed to save form' };
     }
   }
 
   async updateForm(id, formData) {
     const token = localStorage.getItem('token');
     if (!token) {
-      return { ok: false, error: 'Необходима авторизация' };
+      return { ok: false, error: 'Authentication required' };
     }
 
     try {
@@ -64,14 +87,14 @@ class FormService {
       );
       return response.data;
     } catch (error) {
-      return { ok: false, error: error.response?.data?.error || 'Ошибка обновления формы' };
+      return { ok: false, error: error.response?.data?.error || 'Failed to update form' };
     }
   }
 
   async deleteForm(id) {
     const token = localStorage.getItem('token');
     if (!token) {
-      return { ok: false, error: 'Необходима авторизация' };
+      return { ok: false, error: 'Authentication required' };
     }
 
     try {
@@ -85,7 +108,7 @@ class FormService {
       );
       return response.data;
     } catch (error) {
-      return { ok: false, error: error.response?.data?.error || 'Ошибка удаления формы' };
+      return { ok: false, error: error.response?.data?.error || 'Failed to delete form' };
     }
   }
 
@@ -111,7 +134,7 @@ class FormService {
       );
       return response.data;
     } catch (error) {
-      return { ok: false, error: error.response?.data?.error || 'Ошибка отправки формы' };
+      return { ok: false, error: error.response?.data?.error || 'Failed to submit form' };
     }
   }
 
@@ -123,7 +146,7 @@ class FormService {
       );
       return response.data;
     } catch (error) {
-      return { ok: false, error: error.response?.data?.error || 'Ошибка подписания формы' };
+      return { ok: false, error: error.response?.data?.error || 'Failed to sign form' };
     }
   }
 }

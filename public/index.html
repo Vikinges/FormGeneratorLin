@@ -1,9 +1,9 @@
-<!DOCTYPE html>
-<html lang="ru">
+﻿<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDF Generator - Сборка...</title>
+    <title>PDF Generator - Loading…</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -34,15 +34,20 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        code {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 16px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📋 PDF Generator</h1>
+        <h1>PDF Generator</h1>
         <div class="spinner"></div>
-        <p>Клиентская часть собирается...</p>
-        <p style="margin-top: 20px; font-size: 14px; opacity: 0.7;">Запустите: cd client && npm install && npm run build</p>
+        <p>The client bundle is not built yet.</p>
+        <p style="margin-top: 20px; font-size: 14px; opacity: 0.7;">Run <code>cd client && npm install && npm run build</code> to generate the production assets.</p>
     </div>
 </body>
 </html>
-

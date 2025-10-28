@@ -71,7 +71,7 @@ function FormViewer() {
     canvas.addEventListener('mouseup', stopDraw);
     canvas.addEventListener('mouseleave', stopDraw);
 
-    // Touch events для мобильных
+    // Touch support for mobile devices
     canvas.addEventListener('touchstart', (e) => {
       e.preventDefault();
       const touch = e.touches[0];
@@ -101,11 +101,11 @@ function FormViewer() {
     const result = await formService.submitFilledForm(id, formData, []);
     
     if (result.ok) {
-      // Теперь подписываем форму
+      // Now submit collected signatures
       const signResult = await formService.signForm(result.id, signatures);
       
       if (signResult.ok) {
-        alert('Форма успешно подписана и отправлена! PDF сгенерирован.');
+        alert('Form signed and submitted. PDF document generated.');
         navigate('/');
       } else {
         alert(signResult.error);
@@ -126,7 +126,7 @@ function FormViewer() {
   }
 
   if (!form) {
-    return <div>Форма не найдена</div>;
+    return <div>Form not found</div>;
   }
 
   const fields = JSON.parse(form.content);
@@ -164,7 +164,7 @@ function FormViewer() {
                   checked={formData[field.id] || false}
                   onChange={(e) => handleInputChange(field.id, e.target.checked)}
                 />
-                <span>{field.checkboxLabel || 'Да'}</span>
+                <span>{field.checkboxLabel || 'Yes'}</span>
               </label>
             )}
 
@@ -195,7 +195,7 @@ function FormViewer() {
                   className="btn btn-secondary"
                   onClick={() => clearSignature(field.id)}
                 >
-                  Очистить
+                Clear
                 </button>
               </div>
             )}
@@ -208,10 +208,10 @@ function FormViewer() {
             className="btn btn-secondary"
             onClick={() => navigate('/')}
           >
-            Отмена
+            Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Отправка...' : '✍️ Подписать и отправить'}
+            {submitting ? 'Sending…' : '✍️ Sign & submit'}
           </button>
         </div>
       </form>

@@ -19,7 +19,7 @@ function Dashboard({ onLogout }) {
     if (result.ok) {
       setForms(result.forms || []);
     } else {
-      setError(result.error || 'Ошибка загрузки форм');
+      setError(result.error || 'Unable to load forms');
     }
     setLoading(false);
   };
@@ -34,7 +34,7 @@ function Dashboard({ onLogout }) {
 
   const handleDeleteForm = async (id, e) => {
     e.stopPropagation();
-    if (window.confirm('Удалить эту форму?')) {
+    if (window.confirm('Delete this form?')) {
       const result = await formService.deleteForm(id);
       if (result.ok) {
         loadForms();
@@ -63,18 +63,18 @@ function Dashboard({ onLogout }) {
       <div className="dashboard-header">
         <div className="header-content">
           <div>
-            <h1>📋 Мои формы</h1>
-            <p>Управление шаблонами форм</p>
+            <h1>📋 My Forms</h1>
+            <p>Manage and publish your templates</p>
           </div>
           <div className="header-actions">
             <button className="btn btn-secondary" onClick={() => navigate('/admin')}>
-              ⚙️ Админ-панель
+              ⚙️ Admin Panel
             </button>
             <button className="btn btn-primary" onClick={handleNewForm}>
-              ➕ Новая форма
+              ➕ New Form
             </button>
             <button className="btn btn-secondary" onClick={onLogout}>
-              Выход
+              Sign out
             </button>
           </div>
         </div>
@@ -86,10 +86,10 @@ function Dashboard({ onLogout }) {
         {forms.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">📝</div>
-            <h2>Нет созданных форм</h2>
-            <p>Создайте свою первую форму для начала работы</p>
+            <h2>No forms yet</h2>
+            <p>Create your first template to get started</p>
             <button className="btn btn-primary" onClick={handleNewForm}>
-              Создать форму
+              Create form
             </button>
           </div>
         ) : (
@@ -102,30 +102,30 @@ function Dashboard({ onLogout }) {
                     <button 
                       className="btn-icon" 
                       onClick={() => handleViewForm(form.id)}
-                      title="Посмотреть"
+                      title="Preview"
                     >
                       👁️
                     </button>
                     <button 
                       className="btn-icon" 
                       onClick={() => handleEditForm(form.id)}
-                      title="Редактировать"
+                      title="Edit"
                     >
                       ✏️
                     </button>
                     <button 
                       className="btn-icon btn-icon-danger" 
                       onClick={(e) => handleDeleteForm(form.id, e)}
-                      title="Удалить"
+                      title="Delete"
                     >
                       🗑️
                     </button>
                   </div>
                 </div>
-                <p className="form-description">{form.description || 'Нет описания'}</p>
+                <p className="form-description">{form.description || 'No description yet'}</p>
                 <div className="form-card-footer">
                   <span className="form-date">
-                    📅 {new Date(form.created_at).toLocaleDateString('ru-RU')}
+                    📅 {new Date(form.created_at).toLocaleDateString('en-US')}
                   </span>
                 </div>
               </div>

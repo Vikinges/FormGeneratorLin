@@ -18,7 +18,7 @@ function Auth({ onLogin }) {
     if (result.ok) {
       onLogin();
     } else {
-      setError(result.error || 'Ошибка авторизации');
+      setError(result.error || 'Sign-in failed');
     }
     
     setLoading(false);
@@ -29,43 +29,43 @@ function Auth({ onLogin }) {
       <div className="auth-card">
         <div className="auth-header">
           <h1>📋 PDF Generator</h1>
-          <p>Вход в систему</p>
+          <p>Sign in to manage your forms</p>
         </div>
 
         {error && <div className="error-message">{error}</div>}
 
         <form onSubmit={handleSubmit} className="auth-form">
           <div className="form-group">
-            <label>Логин</label>
+            <label>Username</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="input"
-              placeholder="Введите логин"
+              placeholder="Enter username"
               required
             />
           </div>
 
           <div className="form-group">
-            <label>Пароль</label>
+            <label>Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="input"
-              placeholder="Введите пароль"
+              placeholder="Enter password"
               required
             />
           </div>
 
           <button type="submit" className="btn btn-primary" disabled={loading}>
-            {loading ? 'Вход...' : 'Войти'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
 
         <div className="auth-footer">
-          <small>По умолчанию: admin / admin</small>
+          <small>Default credentials: admin / admin</small>
         </div>
       </div>
     </div>
