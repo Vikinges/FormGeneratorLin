@@ -138,6 +138,18 @@ class FormService {
     }
   }
 
+
+  async getSuggestions(templateId, fieldId, query = '') {
+    try {
+      const response = await axios.get(`${API_URL}/api/forms/${templateId}/suggestions`, {
+        params: { field: fieldId, q: query }
+      });
+      return response.data;
+    } catch (error) {
+      return { ok: false, error: error.response?.data?.error || 'Failed to load suggestions' };
+    }
+  }
+
   async signForm(id, signatures) {
     try {
       const response = await axios.post(

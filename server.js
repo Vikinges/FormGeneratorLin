@@ -6,6 +6,7 @@ const sqlite3 = require('sqlite3').verbose();
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
+const PDFGenerator = require('./pdf-generator');
 require('dotenv').config();
 
 const app = express();
@@ -19,7 +20,7 @@ app.use(express.json());
 // Serve built client if it exists
 const publicExists = fs.existsSync('client/dist');
 const staticPath = publicExists ? 'client/dist' : 'public';
-console.log(`📁 Serving static files from: ${staticPath}`);
+console.log(`Serving static files from: ${staticPath}`);
 app.use(express.static(staticPath));
 
 // Multer configuration for file uploads
@@ -62,6 +63,14 @@ function initializeDatabase() {
       signed_at DATETIME,
       pdf_path TEXT,
       FOREIGN KEY (template_id) REFERENCES form_templates(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS field_suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      template_field_key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      usage_count INTEGER DEFAULT 1,
+      UNIQUE(template_field_key, value)
     )`);
 
     // Seed default administrator credentials
@@ -168,6 +177,37 @@ app.get('/api/forms/:id', (req, res) => {
   });
 });
 
+app.get('/api/forms/:id/suggestions', (req, res) => {
+  const { id } = req.params;
+  const { field, q = '' } = req.query;
+
+  if (!field) {
+    return res.status(400).json({ ok: false, error: 'Field parameter is required' });
+  }
+
+  const search = `${String(q || '').trim()}%`;
+  const key = `${id}:${field}`;
+
+  db.all(
+    `SELECT value FROM field_suggestions
+     WHERE template_field_key = ?
+       AND value LIKE ? COLLATE NOCASE
+     ORDER BY usage_count DESC, value ASC
+     LIMIT 10`,
+    [key, search === '%' ? '%' : search],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ ok: false, error: 'Failed to load suggestions' });
+      }
+
+      res.json({
+        ok: true,
+        suggestions: rows.map((row) => row.value)
+      });
+    }
+  );
+});
+
 // Create new form template (admin only)
 app.post('/api/forms', authenticateToken, (req, res) => {
   const { name, description, content } = req.body;
@@ -250,17 +290,98 @@ app.post('/api/forms/:id/sign', (req, res) => {
   const { id } = req.params;
   const { signatures } = req.body;
 
-  db.run('UPDATE filled_forms SET signatures = ?, signed_at = CURRENT_TIMESTAMP WHERE id = ?',
-    [JSON.stringify(signatures), id],
-    function(err) {
+  db.run(
+    'UPDATE filled_forms SET signatures = ?, signed_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [JSON.stringify(signatures || {}), id],
+    function (err) {
       if (err) {
         return res.status(500).json({ ok: false, error: 'Failed to sign form' });
       }
 
-      // PDF generation placeholder
-      // TODO: invoke PDF generation routine
+      if (this.changes === 0) {
+        return res.status(404).json({ ok: false, error: 'Submission not found' });
+      }
 
-      res.json({ ok: true });
+      db.get(
+        `SELECT ff.*, ft.name AS template_name, ft.description AS template_description, ft.content AS template_content
+         FROM filled_forms ff
+         JOIN form_templates ft ON ft.id = ff.template_id
+         WHERE ff.id = ?`,
+        [id],
+        async (selectErr, row) => {
+          if (selectErr || !row) {
+            console.error('Failed to load submission for PDF generation', selectErr);
+            return res.status(500).json({ ok: false, error: 'Failed to generate PDF' });
+          }
+
+          try {
+            const submissionData = JSON.parse(row.data || '{}');
+            const signaturePayload =
+              signatures || JSON.parse(row.signatures || '{}') || {};
+            const templateFields = JSON.parse(row.template_content || '[]');
+
+            const safeTemplate =
+              (row.template_name || 'form')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '') || 'form';
+
+            const outputPath = path.join(
+              __dirname,
+              'generated',
+              `${safeTemplate}_${row.id}_${Date.now()}.pdf`
+            );
+
+            const suggestionStmt = db.prepare(
+              `INSERT INTO field_suggestions (template_field_key, value, usage_count)
+               VALUES (?, ?, 1)
+               ON CONFLICT(template_field_key, value)
+               DO UPDATE SET usage_count = usage_count + 1`
+            );
+
+            templateFields
+              .filter((field) => field.type === 'text')
+              .forEach((field) => {
+                const key = String(field.id);
+                const rawValue = submissionData[key];
+                if (typeof rawValue === 'string') {
+                  const trimmed = rawValue.trim();
+                  if (trimmed) {
+                    suggestionStmt.run([
+                      `${row.template_id}:${field.id}`,
+                      trimmed
+                    ]);
+                  }
+                }
+              });
+
+            suggestionStmt.finalize();
+
+            await PDFGenerator.generate(submissionData, signaturePayload, {
+              outputPath,
+              template: templateFields,
+              meta: {
+                templateName: row.template_name,
+                templateDescription: row.template_description
+              }
+            });
+
+            db.run(
+              'UPDATE filled_forms SET pdf_path = ? WHERE id = ?',
+              [outputPath, id],
+              (updateErr) => {
+                if (updateErr) {
+                  console.error('Failed to update PDF path in database', updateErr);
+                }
+                res.json({ ok: true, pdfPath: outputPath });
+              }
+            );
+          } catch (pdfErr) {
+            console.error('PDF generation failed', pdfErr);
+            res.status(500).json({ ok: false, error: 'Failed to generate PDF' });
+          }
+        }
+      );
     }
   );
 });
@@ -278,9 +399,9 @@ if (publicExists) {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`📋 PDF Generator server running at http://localhost:${PORT}`);
-  console.log(`📁 Serving static files from: ${staticPath}`);
-  console.log(`💡 Open your browser and navigate to http://localhost:${PORT}`);
+  console.log(`PDF Generator server running at http://localhost:${PORT}`);
+  console.log(`Serving static files from: ${staticPath}`);
+  console.log(`Open your browser and navigate to http://localhost:${PORT}`);
 });
 
 // Graceful shutdown
