@@ -1,0 +1,36 @@
+{
+  "name": "pdfgenirator",
+  "version": "1.0.0",
+  "description": "Генератор форм с электронной подписью для Linart Systems Hub",
+  "main": "server.js",
+  "scripts": {
+    "start": "node scripts/start-all.js",
+    "start:server": "node server.js",
+    "start:client": "npm start --prefix client -- --port=3000",
+    "dev": "node --watch server.js",
+    "build": "cd client && npm run build",
+    "build-client": "cd client && npm run build"
+  },
+  "keywords": [
+    "form-generator",
+    "pdf",
+    "signature",
+    "linart"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "multer": "^1.4.5-lts.1",
+    "sqlite3": "^5.1.6",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "pdf-lib": "^1.17.1",
+    "pdfkit": "^0.13.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}

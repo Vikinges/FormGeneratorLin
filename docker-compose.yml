@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  pdfgenirator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pdfgenirator
+    ports:
+      - "3003:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
+    volumes:
+      - ./database.db:/app/database.db
+      - ./uploads:/app/uploads
+      - ./generated:/app/generated
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+

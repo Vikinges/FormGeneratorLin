@@ -1,0 +1,107 @@
+.form-viewer {
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding: 40px 20px;
+}
+
+.form-viewer-header {
+  max-width: 800px;
+  margin: 0 auto 32px;
+  text-align: center;
+}
+
+.form-viewer-header h1 {
+  font-size: 32px;
+  color: #1e293b;
+  margin-bottom: 8px;
+}
+
+.form-viewer-header p {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.form-content {
+  max-width: 800px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 16px;
+  padding: 40px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.form-field {
+  margin-bottom: 32px;
+}
+
+.form-field label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.required {
+  color: #ef4444;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+.signature-field {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.signature-canvas {
+  border: 2px dashed #cbd5e1;
+  border-radius: 8px;
+  cursor: crosshair;
+  background: white;
+  touch-action: none;
+}
+
+.form-actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 40px;
+  padding-top: 32px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.form-actions .btn {
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .form-viewer {
+    padding: 20px 16px;
+  }
+
+  .form-content {
+    padding: 24px;
+  }
+
+  .form-viewer-header h1 {
+    font-size: 24px;
+  }
+
+  .signature-canvas {
+    width: 100% !important;
+    height: 120px !important;
+  }
+}
+

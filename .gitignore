@@ -1,0 +1,14 @@
+node_modules/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+uploads/
+generated/
+client/dist/
+client/build/
+.DS_Store
+*.log
+npm-debug.log*
+
