@@ -98,19 +98,28 @@ function FormViewer() {
     ctx.lineJoin = 'round';
     ctx.strokeStyle = '#000';
 
-    const baseWidth = Number(canvas.dataset.baseWidth) || Number(canvas.getAttribute('width')) || canvas.width;
-    const baseHeight = Number(canvas.dataset.baseHeight) || Number(canvas.getAttribute('height')) || canvas.height;
-    const ratio = window.devicePixelRatio || 1;
+    const configureCanvasSize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const displayWidth = rect.width || Number(canvas.getAttribute('width')) || 400;
+      const displayHeight = rect.height || Number(canvas.getAttribute('height')) || 150;
+      const ratio = window.devicePixelRatio || 1;
 
-    canvas.width = Math.round(baseWidth * ratio);
-    canvas.height = Math.round(baseHeight * ratio);
-    canvas.style.width = `${baseWidth}px`;
-    canvas.style.height = `${baseHeight}px`;
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      canvas.width = Math.round(displayWidth * ratio);
+      canvas.height = Math.round(displayHeight * ratio);
+      canvas.style.width = `${displayWidth}px`;
+      canvas.style.height = `${displayHeight}px`;
 
-    canvas.dataset.dpiRatio = String(ratio);
-    canvas.dataset.baseWidth = String(baseWidth);
-    canvas.dataset.baseHeight = String(baseHeight);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.scale(ratio, ratio);
+
+      ctx.lineWidth = 2;
+
+      canvas.dataset.dpiRatio = String(ratio);
+      canvas.dataset.baseWidth = String(displayWidth);
+      canvas.dataset.baseHeight = String(displayHeight);
+    };
+
+    configureCanvasSize();
 
     let isDrawing = false;
 
@@ -118,13 +127,17 @@ function FormViewer() {
 
     const getCoordinates = (evt) => {
       const rect = canvas.getBoundingClientRect();
-      const scaleX = baseWidth / rect.width;
-      const scaleY = baseHeight / rect.height;
-      const x = (evt.clientX - rect.left) * scaleX;
-      const y = (evt.clientY - rect.top) * scaleY;
+      const baseWidth = Number(canvas.dataset.baseWidth) || rect.width;
+      const baseHeight = Number(canvas.dataset.baseHeight) || rect.height;
+      const pointerX = evt.clientX - rect.left;
+      const pointerY = evt.clientY - rect.top;
+      const normalizedX = (pointerX / rect.width) * baseWidth;
+      const normalizedY = (pointerY / rect.height) * baseHeight;
+      const x = clamp(normalizedX, 0, baseWidth);
+      const y = clamp(normalizedY, 0, baseHeight);
       return {
-        x: clamp(x, 0, baseWidth),
-        y: clamp(y, 0, baseHeight)
+        x,
+        y
       };
     };
 
@@ -187,12 +200,29 @@ function FormViewer() {
       image.src = cached;
     }
 
+    const handleResize = () => {
+      configureCanvasSize();
+      const cachedImage = signatureImageCache.current[fieldId];
+      if (cachedImage) {
+        const image = new Image();
+        image.onload = () => {
+          const baseWidth = Number(canvas.dataset.baseWidth) || canvas.width;
+          const baseHeight = Number(canvas.dataset.baseHeight) || canvas.height;
+          ctx.drawImage(image, 0, 0, baseWidth, baseHeight);
+        };
+        image.src = cachedImage;
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+
     signatureCleanup.current[fieldId] = () => {
       canvas.removeEventListener('pointerdown', start);
       canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', end);
       canvas.removeEventListener('pointerleave', end);
       canvas.removeEventListener('pointercancel', end);
+      window.removeEventListener('resize', handleResize);
     };
   }, []);
 
