@@ -1,276 +1,692 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  useLayoutEffect
+} from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDrag, useDrop, DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { formService } from '../services/formService';
 import './FormEditor.css';
 
-// Грид-сетка канваса
 const GRID_SIZE = 20;
-const ENABLE_FORM_DEBUG = true; // Включить отладку форм в консоли
+const DEBUG_FLAG_FROM_ENV =
+  typeof process !== 'undefined' && process.env.REACT_APP_ENABLE_FORM_DEBUG === 'true';
+const BASE_CANVAS_WIDTH = 795; // ~210mm at 96dpi
+const BASE_CANVAS_HEIGHT = Math.round(BASE_CANVAS_WIDTH * Math.sqrt(2));
+
+const MIN_FIELD_SIZE = { width: 160, height: 56 };
+
+const FIELD_BASE_DIMENSIONS = {
+  text: { width: 280, height: 72 },
+  checkbox: { width: 240, height: 56 },
+  signature: { width: 320, height: 160 },
+  photo: { width: 320, height: 200 },
+  default: { width: 260, height: 80 }
+};
+
+const FIELD_TEMPLATES = {
+  text: {
+    label: 'Text field',
+    placeholder: 'Type something here'
+  },
+  checkbox: {
+    label: 'Checkbox',
+    placeholder: ''
+  },
+  signature: {
+    label: 'Signature',
+    placeholder: ''
+  },
+  photo: {
+    label: 'Photo upload',
+    placeholder: ''
+  }
+};
+
+const FIELD_ICONS = {
+  text: 'Aa',
+  checkbox: '[]',
+  signature: 'Sig',
+  photo: 'Img',
+  default: 'Fld'
+};
+
+const getDebugFlag = () => {
+  if (DEBUG_FLAG_FROM_ENV) {
+    return true;
+  }
+
+  if (typeof window !== 'undefined') {
+    const runtimeFlag = window.__FORM_EDITOR_DEBUG__;
+    if (typeof runtimeFlag === 'boolean') {
+      return runtimeFlag;
+    }
+
+    try {
+      const stored = window.localStorage?.getItem('formEditorDebug');
+      if (stored != null) {
+        return stored === 'true';
+      }
+    } catch (error) {
+      // Ignore storage access issues (privacy mode, blocked storage, etc.)
+    }
+  }
+
+  return false;
+};
+
 const debugLog = (...args) => {
-  if (ENABLE_FORM_DEBUG) {
+  if (getDebugFlag()) {
     console.log('[FormEditor]', ...args);
   }
 };
 
-// Компоненты для элементов формы с позиционированием
-function FormField({ field, position, onUpdate, onDelete }) {
-  const [{ isDragging }, drag, dragPreview] = useDrag(() => ({
-    type: 'FORM_FIELD',
-    item: { id: field.id, type: field.type },
-    collect: (monitor) => ({ isDragging: monitor.isDragging() }),
-    end: (item, monitor) => {
-      // Отладка
-      const didDrop = monitor.didDrop();
-      if (didDrop) {
-        debugLog('✅ Элемент перемещен для поля:', field.id);
-      } else {
-        debugLog('❌ Элемент НЕ перемещен для поля:', field.id);
-      }
-    }
-  }));
+const parseDimension = (value, fallback) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
 
-  const fieldContent = () => {
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+};
+
+const resolveFieldSize = (field) => {
+  const base = FIELD_BASE_DIMENSIONS[field.type] || FIELD_BASE_DIMENSIONS.default;
+
+  const width = Math.max(
+    MIN_FIELD_SIZE.width,
+    parseDimension(field?.size?.width ?? field?.width, base.width)
+  );
+
+  const height = Math.max(
+    MIN_FIELD_SIZE.height,
+    parseDimension(field?.size?.height ?? field?.height, base.height)
+  );
+
+  return { width, height };
+};
+
+const normaliseField = (raw) => {
+  if (!raw) {
+    return null;
+  }
+
+  const baseSize = FIELD_BASE_DIMENSIONS[raw.type] || FIELD_BASE_DIMENSIONS.default;
+
+  const position = {
+    x: parseDimension(raw?.position?.x, 50),
+    y: parseDimension(raw?.position?.y, 50)
+  };
+
+  const size = {
+    width: Math.max(
+      MIN_FIELD_SIZE.width,
+      parseDimension(raw?.size?.width ?? raw?.width, baseSize.width)
+    ),
+    height: Math.max(
+      MIN_FIELD_SIZE.height,
+      parseDimension(raw?.size?.height ?? raw?.height, baseSize.height)
+    )
+  };
+
+  return {
+    ...raw,
+    id: raw.id,
+    type: raw.type || 'text',
+    label: raw.label || FIELD_TEMPLATES[raw.type]?.label || 'Untitled field',
+    placeholder: raw.placeholder ?? FIELD_TEMPLATES[raw.type]?.placeholder ?? '',
+    position,
+    size
+  };
+};
+
+function FormField({ field, position, scale, onDelete, onResize, onUpdate }) {
+  const size = resolveFieldSize(field);
+
+  const [{ isDragging }, drag, dragPreview] = useDrag(
+    () => ({
+      type: 'FORM_FIELD',
+      item: { id: field.id, type: field.type },
+      collect: (monitor) => ({
+        isDragging: monitor.isDragging()
+      })
+    }),
+    [field.id, field.type]
+  );
+
+  const handleLabelChange = useCallback(
+    (event) => {
+      if (!onUpdate) {
+        return;
+      }
+      const nextValue = event.target.value;
+      onUpdate(field.id, { label: nextValue });
+    },
+    [field.id, onUpdate]
+  );
+
+  const handleResizeStart = useCallback(
+    (direction) => (event) => {
+      if (!onResize) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startSize = resolveFieldSize(field);
+
+      const handlePointerMove = (moveEvent) => {
+        moveEvent.preventDefault();
+
+        const deltaX = (moveEvent.clientX - startX) / scale;
+        const deltaY = (moveEvent.clientY - startY) / scale;
+
+        let nextWidth = startSize.width;
+        let nextHeight = startSize.height;
+
+        if (direction === 'right' || direction === 'corner') {
+          nextWidth = Math.max(MIN_FIELD_SIZE.width, startSize.width + deltaX);
+        }
+
+        if (direction === 'bottom' || direction === 'corner') {
+          nextHeight = Math.max(MIN_FIELD_SIZE.height, startSize.height + deltaY);
+        }
+
+        const roundedWidth = Math.round(nextWidth);
+        const roundedHeight = Math.round(nextHeight);
+
+        onResize(field.id, { width: roundedWidth, height: roundedHeight });
+      };
+
+      const handlePointerUp = () => {
+        window.removeEventListener('pointermove', handlePointerMove);
+        window.removeEventListener('pointerup', handlePointerUp);
+      };
+
+      window.addEventListener('pointermove', handlePointerMove);
+      window.addEventListener('pointerup', handlePointerUp);
+    },
+    [field, onResize, scale]
+  );
+
+  const renderFieldPreview = () => {
     switch (field.type) {
       case 'text':
-        return <input type="text" placeholder={field.placeholder} className="input" disabled />;
+        return (
+          <input
+            type="text"
+            className="field-preview-input"
+            placeholder={field.placeholder || 'Text field'}
+            disabled
+          />
+        );
       case 'checkbox':
         return (
-          <label>
-            <input type="checkbox" disabled /> {field.checkboxLabel || 'Да'}
+          <label className="checkbox-field">
+            <input type="checkbox" disabled />
+            <span>{field.checkboxLabel || 'Option'}</span>
           </label>
         );
       case 'signature':
         return (
           <div className="signature-canvas">
-            <canvas width="300" height="80"></canvas>
+            <canvas width="320" height="120" />
+            <span className="signature-hint">Sign inside the box</span>
           </div>
         );
       case 'photo':
-        return <input type="file" accept="image/*" multiple className="input" disabled />;
+        return (
+          <div className="photo-upload-placeholder">
+            <span>Drop photos here</span>
+            <small>JPG or PNG up to 5MB</small>
+          </div>
+        );
       default:
-        return null;
+        return (
+          <input
+            type="text"
+            className="field-preview-input"
+            placeholder={field.placeholder || 'Field'}
+            disabled
+          />
+        );
     }
   };
 
-  const getIcon = () => {
-    switch (field.type) {
-      case 'text': return '📝';
-      case 'checkbox': return '☑️';
-      case 'signature': return '✍️';
-      case 'photo': return '📷';
-      default: return '📋';
-    }
-  };
+  const icon = FIELD_ICONS[field.type] || FIELD_ICONS.default;
 
   return (
     <div
       ref={dragPreview}
+      className="field-wrapper"
       style={{
-        position: 'absolute',
-        left: position.x,
-        top: position.y,
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        width: `${size.width}px`,
+        height: `${size.height}px`,
         opacity: isDragging ? 0.5 : 1,
-        zIndex: isDragging ? 1000 : 1,
-        pointerEvents: isDragging ? 'none' : 'auto'
+        zIndex: isDragging ? 1000 : 1
       }}
       data-field-id={field.id}
     >
-      <div className="field-container" style={{ 
-        width: field.width || 'auto',
-        minWidth: '200px'
-      }}>
+      <div className="field-container">
         <div className="field-header">
-          <div ref={drag} className="drag-handle" title="Зажмите чтобы переместить">
-            <span className="drag-icon">⋮⋮</span>
-            <span>{getIcon()} {field.label}</span>
+          <div
+            ref={drag}
+            className="drag-handle"
+            title="Drag to move field"
+          >
+            <span className="drag-icon">::</span>
+            <span className="field-name">
+              {icon} {field.label}
+            </span>
           </div>
-          <button onClick={() => onDelete(field.id)} className="btn-delete">✕</button>
+          <button
+            type="button"
+            className="btn-icon"
+            onClick={() => onDelete(field.id)}
+            aria-label="Remove field"
+          >
+            ×
+          </button>
         </div>
-        {fieldContent()}
-        <div className="field-resize">
-          <button onClick={() => onUpdate(field.id, { width: '150px' })} className="btn-resize" title="Маленький">⚬</button>
-          <button onClick={() => onUpdate(field.id, { width: '250px' })} className="btn-resize" title="Средний">○</button>
-          <button onClick={() => onUpdate(field.id, { width: '350px' })} className="btn-resize" title="Большой">◉</button>
+
+        <div className="field-config">
+          <label className="field-config-label" htmlFor={`field-label-${field.id}`}>
+            Field title
+          </label>
+          <input
+            id={`field-label-${field.id}`}
+            type="text"
+            className="field-label-input"
+            value={field.label || ''}
+            onChange={handleLabelChange}
+            placeholder="Enter field title"
+          />
         </div>
+
+        <div className="field-body">{renderFieldPreview()}</div>
+
         {field.dependsOn && (
-          <small className="field-dependency">
-            Зависит от: {field.dependsOn}
-          </small>
+          <small className="field-meta">Depends on field {field.dependsOn}</small>
+        )}
+
+        {onResize && (
+          <>
+            <div
+              className="resize-handle resize-handle-right"
+              onPointerDown={handleResizeStart('right')}
+              role="presentation"
+            />
+            <div
+              className="resize-handle resize-handle-bottom"
+              onPointerDown={handleResizeStart('bottom')}
+              role="presentation"
+            />
+            <div
+              className="resize-handle resize-handle-corner"
+              onPointerDown={handleResizeStart('corner')}
+              role="presentation"
+            />
+          </>
         )}
       </div>
     </div>
   );
 }
 
-// Канвас для форм
-function FormCanvas({ fields, onMoveField, onDeleteField, onUpdateField, onResizeField }) {
+function FormCanvas({ fields, onMoveField, onDeleteField, onResizeField, onUpdateField }) {
+  const viewportRef = useRef(null);
   const canvasRef = useRef(null);
+  const canvasScaleRef = useRef(1);
+
+  const [viewportWidth, setViewportWidth] = useState(BASE_CANVAS_WIDTH);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [snapToGrid, setSnapToGrid] = useState(true);
+  const [spacePressed, setSpacePressed] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+
+  const spacePressedRef = useRef(false);
+  const isPanningRef = useRef(false);
+  const lastPanPointRef = useRef({ x: 0, y: 0 });
 
   const canvasHeight = useMemo(() => {
-    const fallback = 800;
     if (!fields || fields.length === 0) {
-      return fallback;
+      return BASE_CANVAS_HEIGHT;
     }
-    const padding = 200;
-    const maxBottom = fields.reduce((bottom, field) => {
+
+    const padding = 160;
+    const lowestEdge = fields.reduce((bottom, field) => {
       const position = field.position || { x: 50, y: 50 };
       const size = resolveFieldSize(field);
       return Math.max(bottom, position.y + size.height);
     }, 0);
-    return Math.max(fallback, maxBottom + padding);
+
+    return Math.max(BASE_CANVAS_HEIGHT, lowestEdge + padding);
   }, [fields]);
 
-  const [{ isOver }, drop] = useDrop(() => ({
-    accept: 'FORM_FIELD',
-    drop: (item, monitor) => {
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        return;
+  useLayoutEffect(() => {
+    const node = viewportRef.current;
+    if (!node) {
+      return;
+    }
+
+    setViewportWidth(node.clientWidth);
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      if (entries[0]) {
+        setViewportWidth(entries[0].contentRect.width);
       }
+    });
 
-      const canvasRect = canvas.getBoundingClientRect();
-      const currentField = fields.find(f => f.id === item.id);
+    observer.observe(node);
 
-      const parseSize = (value, fallback) => {
-        if (typeof value === 'number' && !Number.isNaN(value)) {
-          return value;
+    return () => observer.disconnect();
+  }, []);
+
+  const fitScale = useMemo(() => {
+    return Math.min(viewportWidth / BASE_CANVAS_WIDTH, 1);
+  }, [viewportWidth]);
+
+  const effectiveScale = useMemo(() => fitScale * zoom, [fitScale, zoom]);
+
+  useEffect(() => {
+    canvasScaleRef.current = effectiveScale || 1;
+  }, [effectiveScale]);
+
+  const [{ isOver }, drop] = useDrop(
+    () => ({
+      accept: 'FORM_FIELD',
+      drop: (item, monitor) => {
+        const canvas = canvasRef.current;
+        if (!canvas) {
+          return;
         }
-        if (typeof value === 'string') {
-          const parsed = parseInt(value, 10);
-          return Number.isNaN(parsed) ? fallback : parsed;
+
+        const canvasRect = canvas.getBoundingClientRect();
+        const scaleFactor = canvasRect.width / BASE_CANVAS_WIDTH;
+        const pointerPosition = monitor.getClientOffset();
+
+        if (!pointerPosition) {
+          return;
         }
-        return fallback;
-      };
 
-      const fieldNode = canvas.querySelector(`[data-field-id="${item.id}"]`);
-      const fieldRect = fieldNode?.getBoundingClientRect();
+        const initialClientOffset = monitor.getInitialClientOffset();
+        const initialSourceClientOffset = monitor.getInitialSourceClientOffset();
 
-      const fieldWidth = fieldRect?.width ?? parseSize(currentField?.width, 250);
-      const fieldHeightHint = fieldRect?.height ?? (currentField?.type === 'signature'
-        ? 180
-        : currentField?.type === 'photo'
-          ? 200
-          : 150);
+        let offsetX = 0;
+        let offsetY = 0;
 
-      const pointerPosition = monitor.getClientOffset();
-      if (!pointerPosition) {
-        return;
+        if (initialClientOffset && initialSourceClientOffset) {
+          offsetX = (initialClientOffset.x - initialSourceClientOffset.x) / scaleFactor;
+          offsetY = (initialClientOffset.y - initialSourceClientOffset.y) / scaleFactor;
+        }
+
+        const pointerX = (pointerPosition.x - canvasRect.left) / scaleFactor;
+        const pointerY = (pointerPosition.y - canvasRect.top) / scaleFactor;
+
+        let x = pointerX - offsetX;
+        let y = pointerY - offsetY;
+
+        const currentField = fields.find((field) => field.id === item.id);
+        const fieldSize = resolveFieldSize(currentField || { type: 'default' });
+
+        x = Math.max(0, Math.min(x, BASE_CANVAS_WIDTH - fieldSize.width));
+        y = Math.max(0, Math.min(y, canvasHeight - fieldSize.height));
+
+        if (snapToGrid) {
+          x = Math.round(x / GRID_SIZE) * GRID_SIZE;
+          y = Math.round(y / GRID_SIZE) * GRID_SIZE;
+        }
+
+        debugLog('Field moved', { fieldId: item.id, x, y });
+        onMoveField(item.id, { x, y });
+      },
+      collect: (monitor) => ({
+        isOver: monitor.isOver()
+      })
+    }),
+    [fields, snapToGrid, onMoveField, canvasHeight]
+  );
+
+  const setCanvasNode = useCallback(
+    (node) => {
+      canvasRef.current = node;
+      if (node) {
+        drop(node);
       }
-
-      const initialClientOffset = monitor.getInitialClientOffset();
-      const initialSourceClientOffset = monitor.getInitialSourceClientOffset();
-
-      let offsetX = 0;
-      let offsetY = 0;
-
-      if (initialClientOffset && initialSourceClientOffset) {
-        offsetX = initialClientOffset.x - initialSourceClientOffset.x;
-        offsetY = initialClientOffset.y - initialSourceClientOffset.y;
-      }
-
-      let x = pointerPosition.x - canvasRect.left - offsetX;
-      let y = pointerPosition.y - canvasRect.top - offsetY;
-
-      x = Math.max(0, x);
-      y = Math.max(0, y);
-
-      const boundsWidth = canvas.clientWidth;
-      const boundsHeight = canvasHeight;
-
-      const maxX = Math.max(0, boundsWidth - fieldWidth);
-      const maxY = Math.max(0, boundsHeight - fieldHeightHint);
-
-      x = Math.min(x, maxX);
-      y = Math.min(y, maxY);
-
-      if (snapToGrid) {
-        const snappedX = Math.round(x / GRID_SIZE) * GRID_SIZE;
-        const snappedY = Math.round(y / GRID_SIZE) * GRID_SIZE;
-        debugLog('📍 Snap to grid', { from: { x, y }, to: { x: snappedX, y: snappedY } });
-        x = snappedX;
-        y = snappedY;
-      }
-
-      debugLog('✅ New position', { fieldId: item.id, x, y });
-      onMoveField(item.id, { x, y });
     },
-    collect: (monitor) => ({
-      isOver: monitor.isOver()
-    })
-  }), [fields, snapToGrid, onMoveField, canvasHeight]);
+    [drop]
+  );
 
-  const setCanvasNode = useCallback((node) => {
-    canvasRef.current = node;
-    drop(node);
-  }, [drop]);
+  const stopPanning = useCallback(() => {
+    if (!isPanningRef.current) {
+      return;
+    }
+    isPanningRef.current = false;
+    setIsPanning(false);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.code === 'Space') {
+        if (!spacePressedRef.current) {
+          event.preventDefault();
+        }
+        spacePressedRef.current = true;
+        setSpacePressed(true);
+      }
+    };
+
+    const handleKeyUp = (event) => {
+      if (event.code === 'Space') {
+        spacePressedRef.current = false;
+        setSpacePressed(false);
+        stopPanning();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, { passive: false });
+    window.addEventListener('keyup', handleKeyUp, { passive: false });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [stopPanning]);
+
+  const handleWheel = useCallback(
+    (event) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
+
+      event.preventDefault();
+      const { clientX, clientY, deltaY } = event;
+
+      const viewportRect = viewportRef.current?.getBoundingClientRect();
+      const zoomFactor = deltaY < 0 ? 1.05 : 0.95;
+
+      setZoom((previousZoom) => {
+        const nextZoom = Math.min(Math.max(previousZoom * zoomFactor, 0.5), 2.5);
+
+        if (viewportRect) {
+          const offsetX = clientX - viewportRect.left;
+          const offsetY = clientY - viewportRect.top;
+          const currentScale = fitScale * previousZoom;
+          const nextScale = fitScale * nextZoom;
+
+          setPan((previousPan) => {
+            const contentX = (offsetX - previousPan.x) / currentScale;
+            const contentY = (offsetY - previousPan.y) / currentScale;
+            return {
+              x: offsetX - contentX * nextScale,
+              y: offsetY - contentY * nextScale
+            };
+          });
+        }
+
+        debugLog('Zoom changed', { nextZoom });
+        return nextZoom;
+      });
+    },
+    [fitScale]
+  );
+
+  const handlePointerDown = useCallback((event) => {
+    if (!spacePressedRef.current) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    isPanningRef.current = true;
+    setIsPanning(true);
+    lastPanPointRef.current = { x: event.clientX, y: event.clientY };
+  }, []);
+
+  const handlePointerMove = useCallback((event) => {
+    if (!isPanningRef.current) {
+      return;
+    }
+
+    event.preventDefault();
+
+    const deltaX = event.clientX - lastPanPointRef.current.x;
+    const deltaY = event.clientY - lastPanPointRef.current.y;
+
+    lastPanPointRef.current = { x: event.clientX, y: event.clientY };
+
+    setPan((previousPan) => ({
+      x: previousPan.x + deltaX,
+      y: previousPan.y + deltaY
+    }));
+  }, []);
+
+  const zoomPercent = Math.round(effectiveScale * 100);
+
+  const resetView = useCallback(() => {
+    setPan({ x: 0, y: 0 });
+    setZoom(1);
+    debugLog('View reset');
+  }, []);
 
   return (
-    <div className="form-canvas-scroll">
+    <div
+      className="canvas-stage"
+      ref={viewportRef}
+      onWheel={handleWheel}
+    >
       <div
-        ref={setCanvasNode}
-        className="form-canvas-grid"
-        style={{
-          backgroundImage: snapToGrid
-            ? `repeating-linear-gradient(0deg, transparent, transparent ${GRID_SIZE - 1}px, #e2e8f0 ${GRID_SIZE - 1}px, #e2e8f0 ${GRID_SIZE}px), repeating-linear-gradient(90deg, transparent, transparent ${GRID_SIZE - 1}px, #e2e8f0 ${GRID_SIZE - 1}px, #e2e8f0 ${GRID_SIZE}px)`
-            : undefined,
-          minHeight: canvasHeight
-        }}
+        className={[
+          'canvas-viewport',
+          spacePressed ? 'canvas-viewport--space' : '',
+          isPanning ? 'canvas-viewport--panning' : ''
+        ].join(' ')}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={stopPanning}
+        onPointerLeave={stopPanning}
       >
-        {isOver && <div className="drop-indicator" />}
-        {fields.map(field => {
-          const position = field.position || { x: 50, y: 50 };
-          return (
-            <FormField
-              key={field.id}
-              field={field}
-              position={position}
-              onUpdate={onUpdateField}
-              onDelete={onDeleteField}
-              onResize={onResizeField}
-            />
-          );
-        })}
-        <div className="canvas-controls">
-          <label>
-            <input
-              type="checkbox"
-              checked={snapToGrid}
-              onChange={(e) => setSnapToGrid(e.target.checked)}
-            />
-            Snap to grid
-          </label>
-          <button
-            className="btn-debug"
-            onClick={() => console.log('[FormEditor]', 'Canvas dump', fields)}
+        <div
+          className="canvas-translate"
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
+        >
+          <div
+            ref={setCanvasNode}
+            className="form-canvas-grid"
+            style={{
+              width: `${BASE_CANVAS_WIDTH}px`,
+              minHeight: `${canvasHeight}px`,
+              transform: `scale(${effectiveScale})`,
+              transformOrigin: 'top left',
+              backgroundImage: snapToGrid
+                ? `repeating-linear-gradient(0deg, transparent, transparent ${GRID_SIZE - 1}px, #e2e8f0 ${GRID_SIZE - 1}px, #e2e8f0 ${GRID_SIZE}px), repeating-linear-gradient(90deg, transparent, transparent ${GRID_SIZE - 1}px, #e2e8f0 ${GRID_SIZE - 1}px, #e2e8f0 ${GRID_SIZE}px)`
+                : undefined
+            }}
           >
-            🔍 Debug layout
-          </button>
+            {isOver && <div className="drop-indicator" />}
+            {fields.map((field) => {
+              const position = field.position || { x: 50, y: 50 };
+              return (
+                <FormField
+                  key={field.id}
+                  field={field}
+                  position={position}
+                  scale={canvasScaleRef.current || 1}
+                  onDelete={onDeleteField}
+                  onResize={onResizeField}
+                  onUpdate={onUpdateField}
+                />
+              );
+            })}
+
+            <div className="canvas-controls">
+              <label className="controls-checkbox">
+                <input
+                  type="checkbox"
+                  checked={snapToGrid}
+                  onChange={(event) => setSnapToGrid(event.target.checked)}
+                />
+                Snap to grid
+              </label>
+              <span className="controls-divider">|</span>
+              <span className="controls-zoom">{zoomPercent}%</span>
+              <button type="button" className="btn-ghost" onClick={resetView}>
+                Reset view
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => debugLog('Canvas snapshot', fields)}
+              >
+                Dump layout
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-
 function ElementPalette({ onAddField }) {
-  const fieldTypes = [
-    { type: 'text', icon: '📝', label: 'Текстовое поле' },
-    { type: 'checkbox', icon: '☑️', label: 'Чекбокс' },
-    { type: 'signature', icon: '✍️', label: 'Подпись' },
-    { type: 'photo', icon: '📷', label: 'Фото' }
+  const paletteItems = [
+    { type: 'text', icon: FIELD_ICONS.text, label: 'Text field' },
+    { type: 'checkbox', icon: FIELD_ICONS.checkbox, label: 'Checkbox' },
+    { type: 'signature', icon: FIELD_ICONS.signature, label: 'Signature' },
+    { type: 'photo', icon: FIELD_ICONS.photo, label: 'Photo upload' }
   ];
 
   return (
-    <div className="element-palette">
-      <h3>Элементы формы</h3>
-      <p className="palette-hint">Нажмите чтобы добавить</p>
+    <aside className="palette-strip">
+      <h3>Elements</h3>
+      <p className="palette-hint">
+        Pick an element and drop it on the canvas. Hold space and drag to pan.
+      </p>
       <div className="palette-items">
-        {fieldTypes.map(({ type, icon, label }) => (
+        {paletteItems.map(({ type, icon, label }) => (
           <button
             key={type}
+            type="button"
             className="palette-item-btn"
             onClick={() => onAddField(type)}
           >
@@ -279,147 +695,286 @@ function ElementPalette({ onAddField }) {
           </button>
         ))}
       </div>
-    </div>
+    </aside>
   );
 }
 
 function FormEditor() {
   const { id } = useParams();
   const navigate = useNavigate();
+
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [fields, setFields] = useState([]);
   const [saving, setSaving] = useState(false);
   const [nextFieldId, setNextFieldId] = useState(1);
 
-  useEffect(() => {
-    if (id) {
-      loadForm();
+  const loadForm = useCallback(async () => {
+    if (!id) {
+      return;
     }
+
+    const result = await formService.getForm(id);
+    if (!result.ok || !result.form) {
+      return;
+    }
+
+    setFormName(result.form.name);
+    setFormDescription(result.form.description || '');
+
+    let loadedFields = [];
+    try {
+      const parsed = JSON.parse(result.form.content || '[]');
+      if (Array.isArray(parsed)) {
+        loadedFields = parsed;
+      }
+    } catch (error) {
+      debugLog('Unable to parse stored form content', error);
+    }
+
+    const normalised = loadedFields
+      .map(normaliseField)
+      .filter(Boolean);
+
+    setFields(normalised);
+
+    const maxId = normalised.length
+      ? Math.max(...normalised.map((field) => Number(field.id) || 0))
+      : 0;
+
+    setNextFieldId(maxId + 1);
+
+    debugLog('Form loaded', { id, fieldCount: normalised.length });
   }, [id]);
 
-  const loadForm = async () => {
-    const result = await formService.getForm(id);
-    if (result.ok && result.form) {
-      setFormName(result.form.name);
-      setFormDescription(result.form.description || '');
-      const loadedFields = JSON.parse(result.form.content);
-      setFields(loadedFields);
-      const maxId = loadedFields.length > 0 ? Math.max(...loadedFields.map(f => f.id)) : 0;
-      setNextFieldId(maxId + 1);
+  useEffect(() => {
+    loadForm();
+  }, [loadForm]);
+
+  const handleAddField = useCallback(
+    (type) => {
+      setFields((previousFields) => {
+        const baseTemplate = FIELD_TEMPLATES[type] || FIELD_TEMPLATES.text;
+        const baseSize = FIELD_BASE_DIMENSIONS[type] || FIELD_BASE_DIMENSIONS.default;
+
+        const nextId = nextFieldId;
+        const newField = {
+          id: nextId,
+          type,
+          label: `${baseTemplate.label} ${nextId}`,
+          placeholder: baseTemplate.placeholder,
+          required: false,
+          position: {
+            x: 64,
+            y: previousFields.length * 120 + 64
+          },
+          size: {
+            width: baseSize.width,
+            height: baseSize.height
+          }
+        };
+
+        if (type === 'checkbox' && !newField.checkboxLabel) {
+          newField.checkboxLabel = 'Option';
+        }
+
+        debugLog('Field added', newField);
+        return [...previousFields, newField];
+      });
+
+      setNextFieldId((current) => current + 1);
+    },
+    [nextFieldId]
+  );
+
+  const handleMoveField = useCallback((fieldId, newPosition) => {
+    setFields((previousFields) =>
+      previousFields.map((field) =>
+        field.id === fieldId
+          ? {
+              ...field,
+              position: {
+                x: Math.round(newPosition.x),
+                y: Math.round(newPosition.y)
+              }
+            }
+          : field
+      )
+    );
+  }, []);
+
+  const handleUpdateField = useCallback((fieldId, updates) => {
+    if (!updates || typeof updates !== 'object') {
+      return;
     }
-  };
 
-  const handleAddField = (type) => {
-    const newField = {
-      id: nextFieldId,
-      type,
-      label: `Поле ${nextFieldId}`,
-      placeholder: 'Введите текст',
-      required: false,
-      position: { x: 50, y: fields.length * 80 + 50 },
-      width: '250px'
-    };
-    debugLog('➕ Добавлен элемент:', newField);
-    setFields([...fields, newField]);
-    setNextFieldId(nextFieldId + 1);
-  };
+    setFields((previousFields) =>
+      previousFields.map((field) => {
+        if (field.id !== fieldId) {
+          return field;
+        }
 
-  const handleMoveField = (fieldId, newPosition) => {
-    debugLog('🔄 Перемещение поля:', { fieldId, newPosition });
-    setFields(fields.map(f =>
-      f.id === fieldId ? { ...f, position: newPosition } : f
-    ));
-  };
+        const nextField = { ...field, ...updates };
 
-  const handleUpdateField = (fieldId, updates) => {
-    debugLog('📝 Обновление поля:', { fieldId, updates });
-    setFields(fields.map(f =>
-      f.id === fieldId ? { ...f, ...updates } : f
-    ));
-  };
+        if (updates.position) {
+          nextField.position = {
+            ...field.position,
+            ...updates.position
+          };
+        }
 
-  const handleDeleteField = (fieldId) => {
-    debugLog('🗑️ Удаление поля:', fieldId);
-    setFields(fields.filter(f => f.id !== fieldId));
-  };
+        if (updates.size) {
+          nextField.size = {
+            ...field.size,
+            ...updates.size
+          };
+        }
 
-  const handleSave = async () => {
+        return nextField;
+      })
+    );
+  }, []);
+
+  const handleResizeField = useCallback((fieldId, newSize) => {
+    setFields((previousFields) =>
+      previousFields.map((field) =>
+        field.id === fieldId
+          ? {
+              ...field,
+              size: {
+                width: Math.max(MIN_FIELD_SIZE.width, Math.round(newSize.width)),
+                height: Math.max(MIN_FIELD_SIZE.height, Math.round(newSize.height))
+              }
+            }
+          : field
+      )
+    );
+  }, []);
+
+  const handleDeleteField = useCallback((fieldId) => {
+    setFields((previousFields) => previousFields.filter((field) => field.id !== fieldId));
+  }, []);
+
+  const handleSave = useCallback(async () => {
     if (!formName.trim()) {
-      alert('Введите название формы');
+      alert('Please provide a form name before saving.');
       return;
     }
 
     setSaving(true);
-    const formData = {
+
+    const payload = {
       name: formName,
       description: formDescription,
       content: fields
     };
 
-    debugLog('💾 Сохранение формы:', formData);
+    debugLog('Saving form', payload);
 
-    const result = id 
-      ? await formService.updateForm(id, formData)
-      : await formService.saveForm(formData);
+    const result = id
+      ? await formService.updateForm(id, payload)
+      : await formService.saveForm(payload);
 
-    if (result.ok) {
-      alert('Форма успешно сохранена!');
-      navigate('/');
-    } else {
-      alert(result.error);
-    }
     setSaving(false);
-  };
+
+    if (!result.ok) {
+      alert(result.error || 'Unable to save the form. Please try again.');
+      return;
+    }
+
+    alert('Form saved successfully.');
+    navigate('/');
+  }, [formName, formDescription, fields, id, navigate]);
 
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="form-editor">
-        <div className="editor-header">
+        <header className="editor-header">
           <div className="editor-header-content">
-            <h1>✏️ Редактор формы</h1>
+            <h1>Form builder</h1>
             <div className="header-actions">
-              <button className="btn btn-secondary" onClick={() => navigate('/')}>
-                Отмена
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => navigate('/')}
+              >
+                Back to dashboard
               </button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Сохранение...' : '💾 Сохранить'}
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleSave}
+                disabled={saving}
+              >
+                {saving ? 'Saving...' : 'Save form'}
               </button>
             </div>
           </div>
-        </div>
+        </header>
 
-        <div className="editor-content">
-          <div className="editor-sidebar">
-            <ElementPalette onAddField={handleAddField} />
-          </div>
+        <main className="editor-content">
+          <section className="editor-hero">
+            <div className="hero-copy">
+              <h2>Design A4-ready forms in minutes</h2>
+              <p>
+                Drag elements onto the canvas, snap them to the grid, and fine tune the layout
+                with precise resizing. The left panel hosts all available elements, and the
+                preview matches the generated PDF size.
+              </p>
+              <ul className="hero-points">
+                <li>
+                  Use the scroll wheel with Ctrl or Cmd to zoom in and out of the canvas.
+                </li>
+                <li>Hold the space bar and drag with the mouse to pan around the page.</li>
+                <li>Resize fields from any corner and keep track of every move with debug logs.</li>
+              </ul>
+            </div>
+            <div className="hero-illustration">
+              <div className="hero-card">
+                <span className="hero-card-title">Canvas tips</span>
+                <span className="hero-card-body">Space + drag = pan</span>
+                <span className="hero-card-body">Ctrl/Cmd + wheel = zoom</span>
+                <span className="hero-card-body">Shift + drag handles = resize</span>
+              </div>
+            </div>
+          </section>
 
-          <div className="editor-main">
+          <section className="form-meta-card">
+            <div className="section-header">
+              <h2>Form details</h2>
+              <p>Give the form a clear name and describe its purpose.</p>
+            </div>
             <div className="form-meta">
               <input
                 type="text"
                 value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                placeholder="Название формы"
+                onChange={(event) => setFormName(event.target.value)}
+                placeholder="Name your form"
                 className="input input-title"
               />
               <textarea
                 value={formDescription}
-                onChange={(e) => setFormDescription(e.target.value)}
-                placeholder="Описание формы"
-                className="input textarea"
-                rows="2"
+                onChange={(event) => setFormDescription(event.target.value)}
+                placeholder="Add a short description for editors and signers"
+                className="textarea"
+                rows={2}
               />
             </div>
+          </section>
 
-            <FormCanvas
-              fields={fields}
-              onMoveField={handleMoveField}
-              onDeleteField={handleDeleteField}
-              onUpdateField={handleUpdateField}
-            />
-          </div>
-        </div>
+          <section className="builder-section">
+            <ElementPalette onAddField={handleAddField} />
+            <div className="builder-board">
+              <FormCanvas
+                fields={fields}
+                onMoveField={handleMoveField}
+                onDeleteField={handleDeleteField}
+                onUpdateField={handleUpdateField}
+                onResizeField={handleResizeField}
+              />
+            </div>
+          </section>
+        </main>
       </div>
     </DndProvider>
   );
