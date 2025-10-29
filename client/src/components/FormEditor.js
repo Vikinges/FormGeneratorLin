@@ -175,6 +175,37 @@ function FormField({ field, position, scale, onDelete, onResize, onUpdate }) {
     [field.id, onUpdate]
   );
 
+  const handlePlaceholderChange = useCallback(
+    (event) => {
+      if (!onUpdate) {
+        return;
+      }
+      const nextValue = event.target.value;
+      onUpdate(field.id, { placeholder: nextValue });
+    },
+    [field.id, onUpdate]
+  );
+
+  const handleCheckboxLabelChange = useCallback(
+    (event) => {
+      if (!onUpdate) {
+        return;
+      }
+      onUpdate(field.id, { checkboxLabel: event.target.value });
+    },
+    [field.id, onUpdate]
+  );
+
+  const handleRequiredToggle = useCallback(
+    (event) => {
+      if (!onUpdate) {
+        return;
+      }
+      onUpdate(field.id, { required: event.target.checked });
+    },
+    [field.id, onUpdate]
+  );
+
   const handleResizeStart = useCallback(
     (direction) => (event) => {
       if (!onResize) {
@@ -294,6 +325,7 @@ function FormField({ field, position, scale, onDelete, onResize, onUpdate }) {
               {icon} {field.label}
             </span>
           </div>
+          {field.required && <span className="field-required-badge">Required</span>}
           <button
             type="button"
             className="btn-icon"
@@ -316,6 +348,50 @@ function FormField({ field, position, scale, onDelete, onResize, onUpdate }) {
             onChange={handleLabelChange}
             placeholder="Enter field title"
           />
+          {field.type === 'text' && (
+            <>
+              <label
+                className="field-config-label"
+                htmlFor={`field-placeholder-${field.id}`}
+              >
+                Placeholder
+              </label>
+              <input
+                id={`field-placeholder-${field.id}`}
+                type="text"
+                className="field-placeholder-input"
+                value={field.placeholder || ''}
+                onChange={handlePlaceholderChange}
+                placeholder="Add helper text for signers"
+              />
+            </>
+          )}
+          {field.type === 'checkbox' && (
+            <>
+              <label
+                className="field-config-label"
+                htmlFor={`field-checkbox-label-${field.id}`}
+              >
+                Checkbox label
+              </label>
+              <input
+                id={`field-checkbox-label-${field.id}`}
+                type="text"
+                className="field-placeholder-input"
+                value={field.checkboxLabel || ''}
+                onChange={handleCheckboxLabelChange}
+                placeholder="Label displayed next to checkbox"
+              />
+            </>
+          )}
+          <label className="field-config-toggle">
+            <input
+              type="checkbox"
+              checked={Boolean(field.required)}
+              onChange={handleRequiredToggle}
+            />
+            Required field
+          </label>
         </div>
 
         <div className="field-body">{renderFieldPreview()}</div>

@@ -450,6 +450,38 @@
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
 }
 
+.field-placeholder-input {
+  width: 100%;
+  border: 1px solid #dbeafe;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: #1f2937;
+  background: #f8fafc;
+  box-sizing: border-box;
+}
+
+.field-placeholder-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.field-config-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-top: 4px;
+}
+
+.field-config-toggle input {
+  width: 14px;
+  height: 14px;
+}
+
 .field-container:hover {
   border-color: #6366f1;
   box-shadow: 0 28px 48px -30px rgba(99, 102, 241, 0.45);
@@ -486,6 +518,18 @@
 
 .field-name {
   font-size: 13px;
+}
+
+.field-required-badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #b91c1c;
+  background: rgba(248, 113, 113, 0.18);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  padding: 2px 6px;
+  border-radius: 999px;
 }
 
 .field-body {
