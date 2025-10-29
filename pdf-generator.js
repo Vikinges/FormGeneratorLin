@@ -5,6 +5,14 @@ const path = require('path');
 const fsp = fs.promises;
 
 const DEFAULT_OUTPUT_DIR = 'generated';
+const MM_PER_POINT = 25.4 / 72;
+const CANVAS_WIDTH_PX = 795;
+const CANVAS_HEIGHT_PX = Math.round(CANVAS_WIDTH_PX * Math.sqrt(2));
+const CANVAS_MM = {
+  width: CANVAS_WIDTH_PX / 3.7795275591, // convert px (96dpi) to mm
+  height: CANVAS_HEIGHT_PX / 3.7795275591
+};
+const PDF_MARGIN_MM = 15;
 
 const formatBoolean = (value) => (value ? 'Yes' : 'No');
 const formatArray = (arr) =>
@@ -69,72 +77,129 @@ class PDFGenerator {
 
     return new Promise((resolve, reject) => {
       try {
-        const doc = new PDFDocument({ margin: 50 });
+        const pageWidthMm = CANVAS_MM.width + PDF_MARGIN_MM * 2;
+        const pageHeightMm = CANVAS_MM.height + PDF_MARGIN_MM * 2;
+        const doc = new PDFDocument({
+          size: [pageWidthMm / MM_PER_POINT, pageHeightMm / MM_PER_POINT],
+          margin: PDF_MARGIN_MM / MM_PER_POINT
+        });
         const stream = fs.createWriteStream(targetPath);
         doc.pipe(stream);
 
         const title = meta.templateName || 'PDF Generator';
 
-        doc
-          .fontSize(20)
-          .fillColor('#667eea')
-          .text(title, { align: 'center' })
-          .moveDown();
-
-        if (meta.templateDescription) {
-          doc
-            .fontSize(12)
-            .fillColor('#64748b')
-            .text(meta.templateDescription, { align: 'center' })
-            .moveDown();
-        }
-
-        doc
-          .fontSize(10)
-          .fillColor('#64748b')
-          .text(`Created: ${new Date().toLocaleString('en-US')}`, {
-            align: 'center'
-          })
-          .moveDown(2);
-
-        doc
-          .fontSize(14)
-          .fillColor('#000000')
-          .text('Form content:', { underline: true })
-          .moveDown();
-
         const templateFields = Array.isArray(template) ? template : [];
         const renderedKeys = new Set();
+
+        const toPdf = (px) => (px / 3.7795275591) / MM_PER_POINT; // px -> mm -> pt
+
+        const safeText = (value) => {
+          if (value === undefined || value === null) {
+            return '';
+          }
+          if (typeof value === 'string') {
+            return value;
+          }
+          if (Array.isArray(value)) {
+            return formatArray(value);
+          }
+          if (typeof value === 'object') {
+            return JSON.stringify(value);
+          }
+          return String(value);
+        };
+
+        doc.save();
+
+        if (meta.templateDescription || meta.templateName) {
+          doc
+            .fontSize(16)
+            .fillColor('#1e293b')
+            .text(meta.templateName || 'Form', toPdf(0), toPdf(-30), { width: toPdf(CANVAS_WIDTH_PX), align: 'center' });
+          if (meta.templateDescription) {
+            doc
+              .fontSize(9)
+              .fillColor('#475569')
+              .text(meta.templateDescription, { align: 'center' });
+          }
+        }
+
+        doc.restore();
 
         templateFields.forEach((field) => {
           const key = String(field.id);
           const value = formData[key];
-          if (value === undefined || field.type === 'signature') {
+          if (value === undefined) {
             return;
           }
+
           renderedKeys.add(key);
+
+          const fieldX = toPdf(field.position?.x || 0);
+          const fieldY = toPdf(field.position?.y || 0);
+          const fieldWidth = toPdf(field.size?.width || 240);
+          const fieldHeight = toPdf(field.size?.height || 60);
+
+          if (field.type === 'checkbox') {
+            const boxSize = Math.min(fieldHeight, toPdf(20));
+            doc
+              .rect(fieldX, fieldY, boxSize, boxSize)
+              .stroke('#0f172a');
+            if (value) {
+              doc
+                .moveTo(fieldX + 2, fieldY + boxSize / 2)
+                .lineTo(fieldX + boxSize / 3, fieldY + boxSize - 2)
+                .lineTo(fieldX + boxSize - 2, fieldY + 2)
+                .stroke('#0f172a');
+            }
+            doc
+              .fontSize(9)
+              .fillColor('#1f2937')
+              .text(field.checkboxLabel || 'Yes', fieldX + boxSize + toPdf(6), fieldY + boxSize / 4, {
+                width: fieldWidth - boxSize - toPdf(6)
+              });
+            return;
+          }
+
+          if (field.type === 'signature') {
+            const signatureData = signatures[key];
+            doc
+              .rect(fieldX, fieldY, fieldWidth, fieldHeight)
+              .stroke('#94a3b8');
+            if (signatureData && signatureData.startsWith('data:image')) {
+              try {
+                const base64Data = signatureData.split(',')[1];
+                const buffer = Buffer.from(base64Data, 'base64');
+                doc.image(buffer, fieldX, fieldY, {
+                  fit: [fieldWidth, fieldHeight]
+                });
+              } catch (err) {
+                console.error('Failed to embed signature image:', err);
+              }
+            }
+            return;
+          }
+
           doc
-            .fontSize(12)
-            .fillColor('#334155')
-            .text(field.label || `Field ${key}`, { continued: true })
+            .fontSize(9)
             .fillColor('#1e293b')
-            .text(`: ${normaliseValue(field, value)}`)
-            .moveDown(0.7);
+            .text(safeText(value), fieldX + toPdf(6), fieldY + toPdf(6), {
+              width: fieldWidth - toPdf(12),
+              height: fieldHeight - toPdf(12)
+            });
         });
 
         Object.entries(formData || {})
           .filter(([key]) => !renderedKeys.has(key) && !String(key).startsWith('signature_'))
-          .forEach(([key, value]) => {
+          .forEach(([key, value], index) => {
             const label = key
               .replace(/_/g, ' ')
               .replace(/\b\w/g, (letter) => letter.toUpperCase());
+            const textY = toPdf(CANVAS_HEIGHT_PX + 40 + index * 20);
             doc
-              .fontSize(12)
+              .fontSize(10)
               .fillColor('#334155')
-              .text(label, { continued: true })
-              .fillColor('#1e293b')
-              .text(`: ${normaliseValue({ type: 'text' }, value)}`)
-              .moveDown(0.7);
+              .text(`${label}: ${safeText(value)}`, toPdf(0), textY, { width: toPdf(CANVAS_WIDTH_PX) });
           });
 
         const signatureLabels = new Map(
