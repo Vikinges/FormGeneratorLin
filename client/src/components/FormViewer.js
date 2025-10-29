@@ -195,6 +195,8 @@ function FormViewer() {
     if (cached) {
       const image = new Image();
       image.onload = () => {
+        const baseWidth = Number(canvas.dataset.baseWidth) || canvas.width;
+        const baseHeight = Number(canvas.dataset.baseHeight) || canvas.height;
         ctx.drawImage(image, 0, 0, baseWidth, baseHeight);
       };
       image.src = cached;
