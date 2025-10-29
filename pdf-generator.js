@@ -6,13 +6,12 @@ const fsp = fs.promises;
 
 const DEFAULT_OUTPUT_DIR = 'generated';
 const MM_PER_POINT = 25.4 / 72;
+const POINTS_PER_MM = 72 / 25.4;
+const PX_TO_POINT = 72 / 96; // 96px == 72pt at 1in
 const CANVAS_WIDTH_PX = 795;
 const CANVAS_HEIGHT_PX = Math.round(CANVAS_WIDTH_PX * Math.sqrt(2));
-const CANVAS_MM = {
-  width: CANVAS_WIDTH_PX / 3.7795275591, // convert px (96dpi) to mm
-  height: CANVAS_HEIGHT_PX / 3.7795275591
-};
 const PDF_MARGIN_MM = 15;
+const PDF_MARGIN_PT = PDF_MARGIN_MM * POINTS_PER_MM;
 
 const formatBoolean = (value) => (value ? 'Yes' : 'No');
 const formatArray = (arr) =>
@@ -26,26 +25,6 @@ const formatArray = (arr) =>
       return String(item);
     })
     .join(', ');
-
-const normaliseValue = (field, raw) => {
-  if (raw === undefined || raw === null || raw === '') {
-    return '—';
-  }
-
-  switch (field.type) {
-    case 'checkbox':
-      return formatBoolean(Boolean(raw));
-    case 'photo':
-      return Array.isArray(raw) ? formatArray(raw) : String(raw);
-    case 'signature':
-      return '[embedded signature]';
-    default:
-      if (typeof raw === 'string') return raw;
-      if (Array.isArray(raw)) return formatArray(raw);
-      if (typeof raw === 'object') return JSON.stringify(raw, null, 2);
-      return String(raw);
-  }
-};
 
 /**
  * Module for generating PDFs from submitted forms.
@@ -77,25 +56,40 @@ class PDFGenerator {
 
     return new Promise((resolve, reject) => {
       try {
-        const pageWidthMm = CANVAS_MM.width + PDF_MARGIN_MM * 2;
-        const pageHeightMm = CANVAS_MM.height + PDF_MARGIN_MM * 2;
         const doc = new PDFDocument({
-          size: [pageWidthMm / MM_PER_POINT, pageHeightMm / MM_PER_POINT],
-          margin: PDF_MARGIN_MM / MM_PER_POINT
+          size: 'A4',
+          margin: 0
         });
         const stream = fs.createWriteStream(targetPath);
         doc.pipe(stream);
+        doc.font('Helvetica');
 
         const title = meta.templateName || 'PDF Generator';
 
         const templateFields = Array.isArray(template) ? template : [];
         const renderedKeys = new Set();
 
-        const toPdf = (px) => (px / 3.7795275591) / MM_PER_POINT; // px -> mm -> pt
+        const printableWidth = doc.page.width - PDF_MARGIN_PT * 2;
+        const printableHeight = doc.page.height - PDF_MARGIN_PT * 2;
+        const scale = Math.min(
+          printableWidth / CANVAS_WIDTH_PX,
+          printableHeight / CANVAS_HEIGHT_PX
+        );
+        const canvasWidthPt = CANVAS_WIDTH_PX * scale;
+        const canvasHeightPt = CANVAS_HEIGHT_PX * scale;
+        const originX = PDF_MARGIN_PT + (printableWidth - canvasWidthPt) / 2;
+        const originY = PDF_MARGIN_PT;
+
+        const px = (value) => value * scale;
+        const scaledFont = (size) => Math.max(size * scale, size * 0.85);
+        const scaledSpacing = (value, minimum = value) => Math.max(value * scale, minimum);
 
         const safeText = (value) => {
           if (value === undefined || value === null) {
             return '';
+          }
+          if (typeof value === 'boolean') {
+            return formatBoolean(value);
           }
           if (typeof value === 'string') {
             return value;
@@ -109,85 +103,268 @@ class PDFGenerator {
           return String(value);
         };
 
-        doc.save();
+        const parseNumeric = (value, fallback) => {
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            return value;
+          }
+          if (typeof value === 'string') {
+            const parsed = parseFloat(value);
+            if (!Number.isNaN(parsed)) {
+              return parsed;
+            }
+          }
+          return fallback;
+        };
 
-        if (meta.templateDescription || meta.templateName) {
-          doc
-            .fontSize(16)
-            .fillColor('#1e293b')
-            .text(meta.templateName || 'Form', toPdf(0), toPdf(-30), { width: toPdf(CANVAS_WIDTH_PX), align: 'center' });
+        const drawRequiredBadge = (x, y) => {
+          const badgeText = 'REQUIRED';
+          const badgeFont = scaledFont(8);
+          const paddingX = scaledSpacing(6, 4);
+          const paddingY = scaledSpacing(3, 2);
+          doc.save();
+          doc.font('Helvetica-Bold').fontSize(badgeFont);
+          const textWidth = doc.widthOfString(badgeText);
+          const badgeWidth = textWidth + paddingX * 2;
+          const badgeHeight = badgeFont + paddingY * 2;
+          doc.fillColor('#fee2e2').strokeColor('#fca5a5');
+          doc.roundedRect(x - badgeWidth, y, badgeWidth, badgeHeight, scaledSpacing(6, 4)).fillAndStroke();
+          doc.fillColor('#b91c1c').text(
+            badgeText,
+            x - badgeWidth + paddingX,
+            y + paddingY / 2,
+            { width: textWidth, align: 'center' }
+          );
+          doc.restore();
+        };
+
+        const drawFieldFrame = (field, rect) => {
+          const padding = scaledSpacing(16, 12);
+          const radius = scaledSpacing(14, 8);
+          doc.save();
+          doc.lineWidth(Math.max(1, 1.1 * scale));
+          doc.fillColor('#fbfdff');
+          doc.strokeColor('#cbd5f5');
+          doc.roundedRect(rect.x, rect.y, rect.width, rect.height, radius).fillAndStroke('#fbfdff', '#cbd5f5');
+          doc.restore();
+
+          const label = field.label || `Field ${field.id}`;
+          const labelOptions = {
+            width: rect.width - padding * 2
+          };
+          doc.font('Helvetica-Bold').fontSize(scaledFont(11)).fillColor('#1e1b4b');
+          doc.text(label, rect.x + padding, rect.y + padding, labelOptions);
+          const labelHeight = doc.heightOfString(label, labelOptions);
+
+          if (field.required) {
+            drawRequiredBadge(rect.x + rect.width - padding, rect.y + padding / 2);
+          }
+
+          const contentTop = rect.y + padding + labelHeight + scaledSpacing(8, 6);
+          const contentHeight = Math.max(rect.height - (contentTop - rect.y) - padding, scaledSpacing(28, 20));
+          const contentRect = {
+            x: rect.x + padding,
+            y: contentTop,
+            width: rect.width - padding * 2,
+            height: contentHeight
+          };
+
+          doc.font('Helvetica').fontSize(scaledFont(10)).fillColor('#1f2937');
+          return contentRect;
+        };
+
+        const drawInputSurface = (contentRect, options = {}) => {
+          const {
+            radius = scaledSpacing(10, 6),
+            dashed = false
+          } = options;
+          doc.save();
+          doc.lineWidth(Math.max(1, 1 * scale));
+          doc.fillColor('#ffffff');
+          doc.strokeColor('#dbeafe');
+          if (dashed) {
+            doc.dash(4 * scale, { space: 3 * scale });
+          }
+          doc.roundedRect(contentRect.x, contentRect.y, contentRect.width, contentRect.height, radius).fillAndStroke('#ffffff', '#dbeafe');
+          if (dashed) {
+            doc.undash();
+          }
+          doc.restore();
+        };
+
+        // Canvas backdrop
+        doc.save();
+        doc.fillColor('#f8fafc');
+        doc.strokeColor('#e2e8f0');
+        doc.roundedRect(originX, originY, canvasWidthPt, canvasHeightPt, scaledSpacing(18, 12)).fillAndStroke('#f8fafc', '#e2e8f0');
+        doc.restore();
+
+        if (title || meta.templateDescription) {
+          const headingY = originY - scaledSpacing(40, 32);
+          doc.font('Helvetica-Bold').fontSize(scaledFont(18)).fillColor('#1e1b4b');
+          doc.text(title, originX, headingY, {
+            width: canvasWidthPt,
+            align: 'center'
+          });
           if (meta.templateDescription) {
-            doc
-              .fontSize(9)
-              .fillColor('#475569')
-              .text(meta.templateDescription, { align: 'center' });
+            doc.font('Helvetica').fontSize(scaledFont(10)).fillColor('#475569');
+            doc.text(meta.templateDescription, originX, headingY + scaledSpacing(18, 14), {
+              width: canvasWidthPt,
+              align: 'center'
+            });
           }
         }
-
-        doc.restore();
 
         templateFields.forEach((field) => {
           const key = String(field.id);
           const value = formData[key];
-          if (value === undefined) {
-            return;
-          }
-
           renderedKeys.add(key);
 
-          const fieldX = toPdf(field.position?.x || 0);
-          const fieldY = toPdf(field.position?.y || 0);
-          const fieldWidth = toPdf(field.size?.width || 240);
-          const fieldHeight = toPdf(field.size?.height || 60);
+          const fieldX = originX + px(parseNumeric(field.position?.x, 0));
+          const fieldY = originY + px(parseNumeric(field.position?.y, 0));
+          const fieldWidth = px(parseNumeric(field.size?.width ?? field.width, 240));
+          const fieldHeight = px(parseNumeric(field.size?.height ?? field.height, 72));
+
+          const frame = drawFieldFrame(field, {
+            x: fieldX,
+            y: fieldY,
+            width: fieldWidth,
+            height: fieldHeight
+          });
+
+          const bodyPadding = scaledSpacing(10, 8);
 
           if (field.type === 'checkbox') {
-            const boxSize = Math.min(fieldHeight, toPdf(20));
-            doc
-              .rect(fieldX, fieldY, boxSize, boxSize)
-              .stroke('#0f172a');
+            const boxSize = Math.min(frame.height, scaledSpacing(24, 14));
+            drawInputSurface(
+              {
+                x: frame.x,
+                y: frame.y + (frame.height - boxSize) / 2,
+                width: boxSize,
+                height: boxSize
+              },
+              { radius: scaledSpacing(6, 4) }
+            );
             if (value) {
-              doc
-                .moveTo(fieldX + 2, fieldY + boxSize / 2)
-                .lineTo(fieldX + boxSize / 3, fieldY + boxSize - 2)
-                .lineTo(fieldX + boxSize - 2, fieldY + 2)
-                .stroke('#0f172a');
+              const checkInset = Math.max(3, 2 * scale);
+              doc.save();
+              doc.strokeColor('#4338ca').lineWidth(Math.max(2, 1.2 * scale));
+              doc.moveTo(frame.x + checkInset, frame.y + frame.height / 2);
+              doc.lineTo(frame.x + boxSize / 2, frame.y + frame.height - checkInset);
+              doc.lineTo(frame.x + boxSize - checkInset, frame.y + checkInset);
+              doc.stroke();
+              doc.restore();
             }
-            doc
-              .fontSize(9)
-              .fillColor('#1f2937')
-              .text(field.checkboxLabel || 'Yes', fieldX + boxSize + toPdf(6), fieldY + boxSize / 4, {
-                width: fieldWidth - boxSize - toPdf(6)
-              });
+
+            doc.font('Helvetica').fontSize(scaledFont(11)).fillColor('#1f2937').text(
+              field.checkboxLabel || 'Option',
+              frame.x + boxSize + bodyPadding,
+              frame.y + (frame.height - scaledFont(11)) / 2,
+              {
+                width: frame.width - boxSize - bodyPadding,
+                height: frame.height,
+                align: 'left'
+              }
+            );
             return;
           }
 
           if (field.type === 'signature') {
+            const signatureArea = {
+              x: frame.x,
+              y: frame.y,
+              width: frame.width,
+              height: frame.height - scaledSpacing(18, 14)
+            };
+            drawInputSurface(signatureArea, { dashed: true });
+
             const signatureData = signatures[key];
-            doc
-              .rect(fieldX, fieldY, fieldWidth, fieldHeight)
-              .stroke('#94a3b8');
             if (signatureData && signatureData.startsWith('data:image')) {
               try {
                 const base64Data = signatureData.split(',')[1];
                 const buffer = Buffer.from(base64Data, 'base64');
-                doc.image(buffer, fieldX, fieldY, {
-                  fit: [fieldWidth, fieldHeight]
+                doc.image(buffer, signatureArea.x, signatureArea.y, {
+                  fit: [signatureArea.width, signatureArea.height],
+                  align: 'center',
+                  valign: 'center'
                 });
               } catch (err) {
                 console.error('Failed to embed signature image:', err);
               }
+            } else {
+              doc.font('Helvetica-Oblique').fontSize(scaledFont(10)).fillColor('#94a3b8').text(
+                'Sign inside the box',
+                signatureArea.x,
+                signatureArea.y + (signatureArea.height - scaledFont(10)) / 2,
+                {
+                  width: signatureArea.width,
+                  align: 'center'
+                }
+              );
+            }
+
+            doc.font('Helvetica').fontSize(scaledFont(9)).fillColor('#94a3b8').text(
+              'Sign inside the box',
+              frame.x,
+              signatureArea.y + signatureArea.height + scaledSpacing(6, 4),
+              {
+                width: frame.width,
+                align: 'center'
+              }
+            );
+            return;
+          }
+
+          if (field.type === 'photo') {
+            drawInputSurface(frame, { dashed: true });
+            const files = Array.isArray(value) ? value : [];
+            if (files.length > 0) {
+              const names = files
+                .map((file, index) => `${index + 1}. ${file.originalname || file.name || file.path || 'Attachment'}`)
+                .join('\n');
+              doc.font('Helvetica').fontSize(scaledFont(10)).fillColor('#1f2937').text(
+                names,
+                frame.x + bodyPadding,
+                frame.y + bodyPadding,
+                {
+                  width: frame.width - bodyPadding * 2,
+                  height: frame.height - bodyPadding * 2,
+                  lineBreak: true
+                }
+              );
+            } else {
+              doc.font('Helvetica-Oblique').fontSize(scaledFont(10)).fillColor('#94a3b8').text(
+                'No files uploaded',
+                frame.x + bodyPadding,
+                frame.y + (frame.height - scaledFont(10)) / 2,
+                {
+                  width: frame.width - bodyPadding * 2,
+                  align: 'center'
+                }
+              );
             }
             return;
           }
 
-          doc
-            .fontSize(9)
-            .fillColor('#1e293b')
-            .text(safeText(value), fieldX + toPdf(6), fieldY + toPdf(6), {
-              width: fieldWidth - toPdf(12),
-              height: fieldHeight - toPdf(12)
-            });
+          // Text & Paragraph fields
+          drawInputSurface(frame);
+          const hasValue = value !== undefined && value !== null && String(value).trim() !== '';
+          const placeholderText = field.placeholder || '';
+          doc.font('Helvetica').fontSize(scaledFont(field.type === 'textarea' ? 11 : 12)).fillColor(
+            hasValue ? '#0f172a' : '#94a3b8'
+          ).text(
+            hasValue ? safeText(value) : placeholderText,
+            frame.x + bodyPadding,
+            frame.y + bodyPadding,
+            {
+              width: frame.width - bodyPadding * 2,
+              height: frame.height - bodyPadding * 2,
+              lineBreak: true
+            }
+          );
         });
+
+        let footerCursor = originY + canvasHeightPt + scaledSpacing(40, 32);
+        const footerWidth = doc.page.width - PDF_MARGIN_PT * 2;
 
         Object.entries(formData || {})
           .filter(([key]) => !renderedKeys.has(key) && !String(key).startsWith('signature_'))
@@ -195,58 +372,26 @@ class PDFGenerator {
             const label = key
               .replace(/_/g, ' ')
               .replace(/\b\w/g, (letter) => letter.toUpperCase());
-            const textY = toPdf(CANVAS_HEIGHT_PX + 40 + index * 20);
-            doc
-              .fontSize(10)
-              .fillColor('#334155')
-              .text(`${label}: ${safeText(value)}`, toPdf(0), textY, { width: toPdf(CANVAS_WIDTH_PX) });
-          });
-
-        const signatureLabels = new Map(
-          templateFields
-            .filter((field) => field.type === 'signature')
-            .map((field) => [String(field.id), field.label || `Signature ${field.id}`])
-        );
-
-        if (signatures && Object.keys(signatures).length > 0) {
-          doc.moveDown(1.5);
-          doc
-            .fontSize(14)
-            .fillColor('#000000')
-            .text('Signatures:', { underline: true })
-            .moveDown();
-
-          const signatureTime = new Date().toLocaleString('en-US');
-
-          Object.entries(signatures).forEach(([signer, signatureData]) => {
-            const label = signatureLabels.get(String(signer)) || signer;
-
-            doc
-              .fontSize(12)
-              .fillColor('#334155')
-              .text(`${label}:`)
-              .moveDown(0.3);
-
-            if (signatureData && signatureData.startsWith('data:image')) {
-              try {
-                const base64Data = signatureData.split(',')[1];
-                const buffer = Buffer.from(base64Data, 'base64');
-                doc.image(buffer, {
-                  fit: [320, 120],
-                  align: 'left'
-                });
-              } catch (err) {
-                console.error('Failed to embed signature image:', err);
-              }
+            if (index === 0) {
+              doc.font('Helvetica-Bold').fontSize(scaledFont(12)).fillColor('#1e1b4b');
+              doc.text('Additional data', PDF_MARGIN_PT, footerCursor, {
+                width: footerWidth
+              });
+              footerCursor = doc.y + scaledSpacing(8, 6);
             }
-
-            doc
-              .fontSize(10)
-              .fillColor('#94a3b8')
-              .text(`Signed at: ${signatureTime}`)
-              .moveDown(1.5);
+            doc.font('Helvetica').fontSize(scaledFont(10)).fillColor('#334155');
+            doc.text(`${label}: ${safeText(value)}`, PDF_MARGIN_PT, footerCursor, {
+              width: footerWidth
+            });
+            footerCursor = doc.y + scaledSpacing(4, 4);
           });
-        }
+
+        doc.font('Helvetica').fontSize(scaledFont(9)).fillColor('#94a3b8').text(
+          `Generated on ${new Date().toLocaleString()}`,
+          PDF_MARGIN_PT,
+          doc.page.height - PDF_MARGIN_PT - scaledSpacing(14, 10),
+          { width: footerWidth, align: 'right' }
+        );
 
         doc.end();
 
