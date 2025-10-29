@@ -9,6 +9,7 @@ import React, {
 import { useParams, useNavigate } from 'react-router-dom';
 import { useDrag, useDrop, DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
+import TextareaAutosize from 'react-textarea-autosize';
 import { formService } from '../services/formService';
 import './FormEditor.css';
 
@@ -22,6 +23,7 @@ const MIN_FIELD_SIZE = { width: 160, height: 56 };
 
 const FIELD_BASE_DIMENSIONS = {
   text: { width: 280, height: 72 },
+  textarea: { width: 320, height: 160 },
   checkbox: { width: 240, height: 56 },
   signature: { width: 320, height: 160 },
   photo: { width: 320, height: 200 },
@@ -32,6 +34,10 @@ const FIELD_TEMPLATES = {
   text: {
     label: 'Text field',
     placeholder: 'Type something here'
+  },
+  textarea: {
+    label: 'Paragraph',
+    placeholder: 'Add multi-line notes or instructions'
   },
   checkbox: {
     label: 'Checkbox',
@@ -49,6 +55,7 @@ const FIELD_TEMPLATES = {
 
 const FIELD_ICONS = {
   text: 'Aa',
+  textarea: 'Pg',
   checkbox: '[]',
   signature: 'Sig',
   photo: 'Img',
@@ -271,6 +278,18 @@ function FormField({ field, position, scale, onDelete, onResize, onUpdate }) {
             <span>{field.checkboxLabel || 'Option'}</span>
           </label>
         );
+      case 'textarea':
+        return (
+          <TextareaAutosize
+            className="field-textarea-preview"
+            value=""
+            placeholder={field.placeholder || 'Paragraph text'}
+            minRows={3}
+            maxRows={8}
+            readOnly
+            disabled
+          />
+        );
       case 'signature':
         return (
           <div className="signature-canvas">
@@ -348,7 +367,7 @@ function FormField({ field, position, scale, onDelete, onResize, onUpdate }) {
             onChange={handleLabelChange}
             placeholder="Enter field title"
           />
-          {field.type === 'text' && (
+          {(field.type === 'text' || field.type === 'textarea') && (
             <>
               <label
                 className="field-config-label"
@@ -747,6 +766,7 @@ function FormCanvas({ fields, onMoveField, onDeleteField, onResizeField, onUpdat
 function ElementPalette({ onAddField }) {
   const paletteItems = [
     { type: 'text', icon: FIELD_ICONS.text, label: 'Text field' },
+    { type: 'textarea', icon: FIELD_ICONS.textarea, label: 'Paragraph' },
     { type: 'checkbox', icon: FIELD_ICONS.checkbox, label: 'Checkbox' },
     { type: 'signature', icon: FIELD_ICONS.signature, label: 'Signature' },
     { type: 'photo', icon: FIELD_ICONS.photo, label: 'Photo upload' }

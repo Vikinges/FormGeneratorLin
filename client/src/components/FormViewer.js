@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import TextareaAutosize from 'react-textarea-autosize';
 import { formService } from '../services/formService';
 import './FormViewer.css';
 
@@ -38,9 +39,9 @@ function FormViewer() {
     loadForm();
   }, [id]);
 
-  const handleInputChange = (fieldId, value) => {
+  const handleInputChange = useCallback((fieldId, value) => {
     setFormData((prev) => ({ ...prev, [fieldId]: value }));
-  };
+  }, []);
 
   const fetchSuggestions = useCallback(async (fieldId, query = '') => {
     if (!form?.id) {
@@ -56,15 +57,26 @@ function FormViewer() {
     }
   }, [form]);
 
-  const handleTextInput = useCallback((fieldId, value) => {
-    handleInputChange(fieldId, value);
-    const trimmed = (value || '').trim();
-    if (trimmed.length >= 2) {
-      fetchSuggestions(fieldId, trimmed);
-    } else {
+  const handleTextInput = useCallback(
+    (fieldId, value) => {
+      handleInputChange(fieldId, value);
+      const trimmed = (value || '').trim();
+      if (trimmed.length >= 2) {
+        fetchSuggestions(fieldId, trimmed);
+      } else {
+        setSuggestions((prev) => ({ ...prev, [fieldId]: [] }));
+      }
+    },
+    [fetchSuggestions, handleInputChange]
+  );
+
+  const handleSuggestionPick = useCallback(
+    (fieldId, value) => {
+      handleInputChange(fieldId, value);
       setSuggestions((prev) => ({ ...prev, [fieldId]: [] }));
-    }
-  }, [fetchSuggestions]);
+    },
+    [handleInputChange]
+  );
 
   const registerSignatureCanvas = useCallback((fieldId, canvas) => {
     if (signatureCleanup.current[fieldId]) {
@@ -283,6 +295,36 @@ function FormViewer() {
                   ))}
                 </datalist>
               </>
+            )}
+
+            {field.type === 'textarea' && (
+              <div className="textarea-field">
+                <TextareaAutosize
+                  value={formData[field.id] || ''}
+                  onChange={(event) => handleTextInput(field.id, event.target.value)}
+                  onFocus={() => fetchSuggestions(field.id, formData[field.id] || '')}
+                  placeholder={field.placeholder}
+                  className="textarea-input"
+                  required={field.required}
+                  minRows={3}
+                />
+                {(suggestions[field.id] || []).length > 0 && (
+                  <ul className="suggestion-list" role="listbox">
+                    {(suggestions[field.id] || []).map((option) => (
+                      <li key={`${field.id}-${option}`}>
+                        <button
+                          type="button"
+                          className="suggestion-item"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => handleSuggestionPick(field.id, option)}
+                        >
+                          {option}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             )}
 
             {field.type === 'checkbox' && (

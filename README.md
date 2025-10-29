@@ -6,17 +6,19 @@
 
 ## ✨ Основные возможности
 
-- **Создание форм** - Визуальный редактор с drag-and-drop
-- **Различные элементы форм:**
-  - 📝 Текстовые поля
-  - ☑️ Чекбоксы
-  - ✍️ Поля для подписи (с рисованием)
-  - 📷 Загрузка фотографий
-- **Зависимости элементов** - Условное отображение полей
-- **Адаптивный дизайн** - Отлично работает на смартфонах
-- **Админ-панель** - Управление формами и паролем
-- **Электронная подпись** - Безопасное подписание с фиксацией времени
-- **PDF генерация** - Автоматическое создание защищенных PDF
+- **Interactive builder** – assemble forms with intuitive drag-and-drop
+- **Available elements in the palette:**
+  - Text field
+  - Paragraph (auto-resizing textarea with suggestion history)
+  - Checkbox
+  - Signature (pointer drawing pad)
+  - Photo upload
+- **Reusable field presets** – duplicate and tweak elements without reconfiguring
+- **Rich styling** – modern landing layout with sticky palette and hero onboarding
+- **A4 canvas with zoom & pan** – hold space to pan, use Ctrl/Cmd + scroll to zoom
+- **Debug logging toggle** – set window.__FORM_EDITOR_DEBUG__ = true to trace drag/resize/save events
+- **PDF generation** – sign the form and receive a ready-to-share PDF
+
 
 ## 🏗️ Архитектура
 
@@ -144,6 +146,13 @@ POST /api/forms/:id/sign    # Подписать форму
 - Проверка обязательных полей
 - Финальное подписание и отправка
 
+
+
+### Field suggestions & autocomplete
+- Values typed into Text or Paragraph fields are stored in the ield_suggestions table once the form is signed.
+- Suggestions surface after typing two characters; Paragraph fields render a clickable list, while Text fields use the native datalist.
+- Picking a suggestion fills the field and clears the dropdown so you can continue typing without losing focus.
+- Use the debug toggle (window.__FORM_EDITOR_DEBUG__ = true) when you need to trace drag, resize, or save events in the console.
 ### AdminPanel.js
 Панель администратора:
 - Смена пароля
