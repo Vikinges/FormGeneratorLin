@@ -1,0 +1,225 @@
+.canvas-preview-stage {
+  width: 100%;
+  position: relative;
+}
+
+.canvas-preview-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.canvas-preview-canvas {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform-origin: top left;
+  background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+  border-radius: 24px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 35px 80px -50px rgba(15, 23, 42, 0.35);
+  transform: translateX(-50%);
+}
+
+.canvas-preview-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 18px;
+  border: 2px solid #dbeafe;
+  box-shadow: 0 20px 60px -40px rgba(30, 64, 175, 0.4);
+  padding: 18px;
+  box-sizing: border-box;
+  gap: 12px;
+}
+
+.canvas-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.canvas-preview-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1e1b4b;
+}
+
+.canvas-preview-required {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.9);
+  border: 1px solid #fca5a5;
+  border-radius: 9999px;
+  padding: 2px 8px;
+}
+
+.canvas-preview-body {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.preview-input {
+  width: 100%;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.preview-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+.preview-textarea-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.preview-textarea {
+  width: 100%;
+  min-height: 100%;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  background: #f8fafc;
+  color: #0f172a;
+  resize: none;
+}
+
+.preview-textarea:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+}
+
+.preview-suggestion-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  transform: translateY(100%);
+  list-style: none;
+  padding: 6px;
+  margin: 6px 0 0;
+  background: #ffffff;
+  border: 1px solid #cbd5f5;
+  border-radius: 12px;
+  box-shadow: 0 30px 60px -32px rgba(15, 23, 42, 0.32);
+  z-index: 5;
+}
+
+.preview-suggestion-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: #1f2937;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.preview-suggestion-item:hover {
+  background: #eef2ff;
+  color: #312e81;
+}
+
+.preview-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: #1f2937;
+}
+
+.preview-checkbox input {
+  width: 18px;
+  height: 18px;
+}
+
+.preview-photo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-photo-drop {
+  position: relative;
+  border: 2px dashed #cbd5f5;
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.preview-photo-drop input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.preview-photo-list {
+  margin: 0;
+  padding-left: 16px;
+  color: #1f2937;
+  font-size: 12px;
+}
+
+.preview-signature {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.preview-signature-canvas {
+  width: 100%;
+  height: 100%;
+  border: 2px dashed #cbd5f5;
+  border-radius: 12px;
+  background: #ffffff;
+  touch-action: none;
+}
+
+.preview-signature-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.preview-btn-secondary {
+  border: none;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: #e0e7ff;
+  color: #3730a3;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.preview-signature-status {
+  font-size: 12px;
+  color: #64748b;
+}

@@ -268,11 +268,17 @@ app.post('/api/forms/:id/fill', upload.any(), (req, res) => {
   const uploadedFiles = req.files || [];
 
   // Process uploaded files
-  const filePaths = uploadedFiles.map(file => ({
-    field: file.fieldname,
-    path: `/uploads/${file.filename}`,
-    originalname: file.originalname
-  }));
+  const filePaths = uploadedFiles.map((file) => {
+    const normalisedPath = (file.path || '').replace(/\\/g, '/');
+    return {
+      field: file.fieldname,
+      path: normalisedPath.startsWith('uploads') ? normalisedPath : `uploads/${file.filename}`,
+      diskPath: file.path,
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      size: file.size
+    };
+  });
 
   db.run('INSERT INTO filled_forms (template_id, data) VALUES (?, ?)',
     [id, JSON.stringify({ ...data, files: filePaths })],

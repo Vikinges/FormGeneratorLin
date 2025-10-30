@@ -21,7 +21,7 @@
   font-size: 14px;
 }
 
-.form-content {
+.form-preview-form {
   max-width: 800px;
   margin: 0 auto;
   background: white;
@@ -144,7 +144,7 @@
     padding: 20px 16px;
   }
 
-  .form-content {
+  .form-preview-form {
     padding: 24px;
   }
 

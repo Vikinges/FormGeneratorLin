@@ -54,6 +54,66 @@ class PDFGenerator {
 
     await fsp.mkdir(outputDir, { recursive: true });
 
+    const attachments = Array.isArray(formData?.files) ? formData.files : [];
+    const attachmentsByField = new Map();
+    attachments.forEach((file) => {
+      const fieldKey = file?.field || file?.fieldId;
+      if (!fieldKey) {
+        return;
+      }
+      const key = String(fieldKey);
+      if (!attachmentsByField.has(key)) {
+        attachmentsByField.set(key, []);
+      }
+      attachmentsByField.get(key).push(file);
+    });
+
+    const serialisedData = { ...(formData || {}) };
+    delete serialisedData.files;
+
+    const parseNumeric = (value, fallback) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+      if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        if (!Number.isNaN(parsed)) {
+          return parsed;
+        }
+      }
+      return fallback;
+    };
+
+    const safeText = (value) => {
+      if (value === undefined || value === null || value === '') {
+        return '';
+      }
+      if (typeof value === 'boolean') {
+        return formatBoolean(value);
+      }
+      if (typeof value === 'string') {
+        return value;
+      }
+      if (Array.isArray(value)) {
+        return formatArray(value);
+      }
+      if (typeof value === 'object') {
+        return JSON.stringify(value);
+      }
+      return String(value);
+    };
+
+    const resolveAssetPath = (assetPath) => {
+      if (!assetPath || typeof assetPath !== 'string') {
+        return null;
+      }
+      if (path.isAbsolute(assetPath)) {
+        return assetPath;
+      }
+      const normalised = assetPath.replace(/^[/\\]+/, '');
+      return path.resolve(__dirname, normalised);
+    };
+
     return new Promise((resolve, reject) => {
       try {
         const doc = new PDFDocument({
@@ -69,221 +129,205 @@ class PDFGenerator {
         const templateFields = Array.isArray(template) ? template : [];
         const renderedKeys = new Set();
 
+        const layoutBounds = templateFields.reduce(
+          (acc, field) => {
+            const width = parseNumeric(field.size?.width ?? field.width, 240);
+            const height = parseNumeric(field.size?.height ?? field.height, 72);
+            const x = parseNumeric(field.position?.x, 0);
+            const y = parseNumeric(field.position?.y, 0);
+            return {
+              width: Math.max(acc.width, x + width),
+              height: Math.max(acc.height, y + height)
+            };
+          },
+          { width: CANVAS_WIDTH_PX, height: CANVAS_HEIGHT_PX }
+        );
+
         const printableWidth = doc.page.width - PDF_MARGIN_PT * 2;
         const printableHeight = doc.page.height - PDF_MARGIN_PT * 2;
+        const headingBlock = title || meta.templateDescription ? 72 : 24;
+        const availableHeight = printableHeight - headingBlock;
+
         const scale = Math.min(
-          printableWidth / CANVAS_WIDTH_PX,
-          printableHeight / CANVAS_HEIGHT_PX
+          printableWidth / layoutBounds.width,
+          availableHeight / layoutBounds.height
         );
-        const canvasWidthPt = CANVAS_WIDTH_PX * scale;
-        const canvasHeightPt = CANVAS_HEIGHT_PX * scale;
+
+        const canvasWidthPt = layoutBounds.width * scale;
+        const canvasHeightPt = layoutBounds.height * scale;
         const originX = PDF_MARGIN_PT + (printableWidth - canvasWidthPt) / 2;
-        const originY = PDF_MARGIN_PT;
+        const originY =
+          PDF_MARGIN_PT + headingBlock + (availableHeight - canvasHeightPt) / 2;
 
-        const px = (value) => value * scale;
-        const scaledFont = (size) => Math.max(size * scale, size * 0.85);
-        const scaledSpacing = (value, minimum = value) => Math.max(value * scale, minimum);
+        if (title || meta.templateDescription) {
+          doc.font('Helvetica-Bold')
+            .fontSize(18)
+            .fillColor('#1e1b4b')
+            .text(title, PDF_MARGIN_PT, PDF_MARGIN_PT, {
+              width: printableWidth,
+              align: 'center'
+            });
 
-        const safeText = (value) => {
-          if (value === undefined || value === null) {
-            return '';
+          if (meta.templateDescription) {
+            doc.font('Helvetica')
+              .fontSize(10)
+              .fillColor('#475569')
+              .text(meta.templateDescription, PDF_MARGIN_PT, PDF_MARGIN_PT + 24, {
+                width: printableWidth,
+                align: 'center'
+              });
           }
-          if (typeof value === 'boolean') {
-            return formatBoolean(value);
-          }
-          if (typeof value === 'string') {
-            return value;
-          }
-          if (Array.isArray(value)) {
-            return formatArray(value);
-          }
-          if (typeof value === 'object') {
-            return JSON.stringify(value);
-          }
-          return String(value);
-        };
+        }
 
-        const parseNumeric = (value, fallback) => {
-          if (typeof value === 'number' && Number.isFinite(value)) {
-            return value;
-          }
-          if (typeof value === 'string') {
-            const parsed = parseFloat(value);
-            if (!Number.isNaN(parsed)) {
-              return parsed;
-            }
-          }
-          return fallback;
+        doc.save();
+        doc.translate(originX, originY);
+        doc.scale(scale, scale);
+
+        const CARD_RADIUS = 18;
+        const CARD_PADDING = 18;
+        const INPUT_RADIUS = 12;
+        const INPUT_PADDING = 14;
+        const REQUIRED_BADGE = {
+          paddingX: 8,
+          paddingY: 4,
+          font: 9,
+          radius: 8
         };
 
         const drawRequiredBadge = (x, y) => {
-          const badgeText = 'REQUIRED';
-          const badgeFont = scaledFont(8);
-          const paddingX = scaledSpacing(6, 4);
-          const paddingY = scaledSpacing(3, 2);
+          const label = 'REQUIRED';
           doc.save();
-          doc.font('Helvetica-Bold').fontSize(badgeFont);
-          const textWidth = doc.widthOfString(badgeText);
-          const badgeWidth = textWidth + paddingX * 2;
-          const badgeHeight = badgeFont + paddingY * 2;
+          doc.font('Helvetica-Bold').fontSize(REQUIRED_BADGE.font);
+          const textWidth = doc.widthOfString(label);
+          const badgeWidth = textWidth + REQUIRED_BADGE.paddingX * 2;
+          const badgeHeight = REQUIRED_BADGE.font + REQUIRED_BADGE.paddingY * 2;
           doc.fillColor('#fee2e2').strokeColor('#fca5a5');
-          doc.roundedRect(x - badgeWidth, y, badgeWidth, badgeHeight, scaledSpacing(6, 4)).fillAndStroke();
-          doc.fillColor('#b91c1c').text(
-            badgeText,
-            x - badgeWidth + paddingX,
-            y + paddingY / 2,
-            { width: textWidth, align: 'center' }
-          );
+          doc
+            .roundedRect(
+              x - badgeWidth,
+              y,
+              badgeWidth,
+              badgeHeight,
+              REQUIRED_BADGE.radius
+            )
+            .fillAndStroke('#fee2e2', '#fca5a5');
+          doc.fillColor('#b91c1c').text(label, x - badgeWidth + REQUIRED_BADGE.paddingX, y + REQUIRED_BADGE.paddingY / 2, {
+            width: textWidth,
+            align: 'center'
+          });
           doc.restore();
         };
 
-        const drawFieldFrame = (field, rect) => {
-          const padding = scaledSpacing(16, 12);
-          const radius = scaledSpacing(14, 8);
+        const drawCard = (field, rect) => {
           doc.save();
-          doc.lineWidth(Math.max(1, 1.1 * scale));
+          doc.lineWidth(2);
           doc.fillColor('#fbfdff');
           doc.strokeColor('#cbd5f5');
-          doc.roundedRect(rect.x, rect.y, rect.width, rect.height, radius).fillAndStroke('#fbfdff', '#cbd5f5');
+          doc
+            .roundedRect(rect.x, rect.y, rect.width, rect.height, CARD_RADIUS)
+            .fillAndStroke('#fbfdff', '#cbd5f5');
           doc.restore();
 
           const label = field.label || `Field ${field.id}`;
-          const labelOptions = {
-            width: rect.width - padding * 2
-          };
-          doc.font('Helvetica-Bold').fontSize(scaledFont(11)).fillColor('#1e1b4b');
-          doc.text(label, rect.x + padding, rect.y + padding, labelOptions);
-          const labelHeight = doc.heightOfString(label, labelOptions);
+          const textWidth = rect.width - CARD_PADDING * 2;
+
+          doc.font('Helvetica-Bold').fontSize(16).fillColor('#1e1b4b');
+          const labelHeight = doc.heightOfString(label, { width: textWidth });
+          doc.text(label, rect.x + CARD_PADDING, rect.y + CARD_PADDING, {
+            width: textWidth,
+            lineBreak: true
+          });
 
           if (field.required) {
-            drawRequiredBadge(rect.x + rect.width - padding, rect.y + padding / 2);
+            drawRequiredBadge(rect.x + rect.width - CARD_PADDING, rect.y + CARD_PADDING / 2);
           }
 
-          const contentTop = rect.y + padding + labelHeight + scaledSpacing(8, 6);
-          const contentHeight = Math.max(rect.height - (contentTop - rect.y) - padding, scaledSpacing(28, 20));
-          const contentRect = {
-            x: rect.x + padding,
-            y: contentTop,
-            width: rect.width - padding * 2,
+          const contentY = rect.y + CARD_PADDING + labelHeight + 10;
+          const contentHeight = Math.max(rect.height - (contentY - rect.y) - CARD_PADDING, 24);
+
+          return {
+            x: rect.x + CARD_PADDING,
+            y: contentY,
+            width: rect.width - CARD_PADDING * 2,
             height: contentHeight
           };
-
-          doc.font('Helvetica').fontSize(scaledFont(10)).fillColor('#1f2937');
-          return contentRect;
         };
 
-        const drawInputSurface = (contentRect, options = {}) => {
-          const {
-            radius = scaledSpacing(10, 6),
-            dashed = false
-          } = options;
+        const drawInputSurface = (rect, { dashed = false } = {}) => {
           doc.save();
-          doc.lineWidth(Math.max(1, 1 * scale));
+          doc.lineWidth(1.4);
           doc.fillColor('#ffffff');
           doc.strokeColor('#dbeafe');
           if (dashed) {
-            doc.dash(4 * scale, { space: 3 * scale });
+            doc.dash(6, { space: 4 });
           }
-          doc.roundedRect(contentRect.x, contentRect.y, contentRect.width, contentRect.height, radius).fillAndStroke('#ffffff', '#dbeafe');
+          doc
+            .roundedRect(rect.x, rect.y, rect.width, rect.height, INPUT_RADIUS)
+            .fillAndStroke('#ffffff', '#dbeafe');
           if (dashed) {
             doc.undash();
           }
           doc.restore();
         };
 
-        // Canvas backdrop
         doc.save();
         doc.fillColor('#f8fafc');
         doc.strokeColor('#e2e8f0');
-        doc.roundedRect(originX, originY, canvasWidthPt, canvasHeightPt, scaledSpacing(18, 12)).fillAndStroke('#f8fafc', '#e2e8f0');
+        doc.roundedRect(0, 0, layoutBounds.width, layoutBounds.height, 24).fillAndStroke('#f8fafc', '#e2e8f0');
         doc.restore();
-
-        if (title || meta.templateDescription) {
-          const headingY = originY - scaledSpacing(40, 32);
-          doc.font('Helvetica-Bold').fontSize(scaledFont(18)).fillColor('#1e1b4b');
-          doc.text(title, originX, headingY, {
-            width: canvasWidthPt,
-            align: 'center'
-          });
-          if (meta.templateDescription) {
-            doc.font('Helvetica').fontSize(scaledFont(10)).fillColor('#475569');
-            doc.text(meta.templateDescription, originX, headingY + scaledSpacing(18, 14), {
-              width: canvasWidthPt,
-              align: 'center'
-            });
-          }
-        }
 
         templateFields.forEach((field) => {
           const key = String(field.id);
-          const value = formData[key];
+          const rawValue = serialisedData[key];
           renderedKeys.add(key);
 
-          const fieldX = originX + px(parseNumeric(field.position?.x, 0));
-          const fieldY = originY + px(parseNumeric(field.position?.y, 0));
-          const fieldWidth = px(parseNumeric(field.size?.width ?? field.width, 240));
-          const fieldHeight = px(parseNumeric(field.size?.height ?? field.height, 72));
+          const x = parseNumeric(field.position?.x, 0);
+          const y = parseNumeric(field.position?.y, 0);
+          const width = parseNumeric(field.size?.width ?? field.width, 240);
+          const height = parseNumeric(field.size?.height ?? field.height, 72);
 
-          const frame = drawFieldFrame(field, {
-            x: fieldX,
-            y: fieldY,
-            width: fieldWidth,
-            height: fieldHeight
-          });
-
-          const bodyPadding = scaledSpacing(10, 8);
+          const cardRect = { x, y, width, height };
+          const inputRect = drawCard(field, cardRect);
 
           if (field.type === 'checkbox') {
-            const boxSize = Math.min(frame.height, scaledSpacing(24, 14));
-            drawInputSurface(
-              {
-                x: frame.x,
-                y: frame.y + (frame.height - boxSize) / 2,
-                width: boxSize,
-                height: boxSize
-              },
-              { radius: scaledSpacing(6, 4) }
-            );
-            if (value) {
-              const checkInset = Math.max(3, 2 * scale);
+            const boxSize = Math.min(inputRect.height, 24);
+            const boxRect = {
+              x: inputRect.x,
+              y: inputRect.y + (inputRect.height - boxSize) / 2,
+              width: boxSize,
+              height: boxSize
+            };
+            drawInputSurface(boxRect);
+            if (rawValue) {
               doc.save();
-              doc.strokeColor('#4338ca').lineWidth(Math.max(2, 1.2 * scale));
-              doc.moveTo(frame.x + checkInset, frame.y + frame.height / 2);
-              doc.lineTo(frame.x + boxSize / 2, frame.y + frame.height - checkInset);
-              doc.lineTo(frame.x + boxSize - checkInset, frame.y + checkInset);
-              doc.stroke();
+              doc.strokeColor('#4338ca').lineWidth(2);
+              doc
+                .moveTo(boxRect.x + 3, boxRect.y + boxRect.height / 2)
+                .lineTo(boxRect.x + boxRect.width / 2, boxRect.y + boxRect.height - 4)
+                .lineTo(boxRect.x + boxRect.width - 3, boxRect.y + 4)
+                .stroke();
               doc.restore();
             }
-
-            doc.font('Helvetica').fontSize(scaledFont(11)).fillColor('#1f2937').text(
+            doc.font('Helvetica').fontSize(14).fillColor('#1f2937');
+            doc.text(
               field.checkboxLabel || 'Option',
-              frame.x + boxSize + bodyPadding,
-              frame.y + (frame.height - scaledFont(11)) / 2,
+              boxRect.x + boxRect.width + 10,
+              inputRect.y + (inputRect.height - 14) / 2,
               {
-                width: frame.width - boxSize - bodyPadding,
-                height: frame.height,
-                align: 'left'
+                width: inputRect.width - boxRect.width - 10
               }
             );
             return;
           }
 
           if (field.type === 'signature') {
-            const signatureArea = {
-              x: frame.x,
-              y: frame.y,
-              width: frame.width,
-              height: frame.height - scaledSpacing(18, 14)
-            };
-            drawInputSurface(signatureArea, { dashed: true });
-
+            drawInputSurface(inputRect, { dashed: true });
             const signatureData = signatures[key];
             if (signatureData && signatureData.startsWith('data:image')) {
               try {
-                const base64Data = signatureData.split(',')[1];
-                const buffer = Buffer.from(base64Data, 'base64');
-                doc.image(buffer, signatureArea.x, signatureArea.y, {
-                  fit: [signatureArea.width, signatureArea.height],
+                const buffer = Buffer.from(signatureData.split(',')[1], 'base64');
+                doc.image(buffer, inputRect.x + 6, inputRect.y + 6, {
+                  fit: [inputRect.width - 12, inputRect.height - 24],
                   align: 'center',
                   valign: 'center'
                 });
@@ -291,107 +335,137 @@ class PDFGenerator {
                 console.error('Failed to embed signature image:', err);
               }
             } else {
-              doc.font('Helvetica-Oblique').fontSize(scaledFont(10)).fillColor('#94a3b8').text(
-                'Sign inside the box',
-                signatureArea.x,
-                signatureArea.y + (signatureArea.height - scaledFont(10)) / 2,
-                {
-                  width: signatureArea.width,
-                  align: 'center'
-                }
-              );
-            }
-
-            doc.font('Helvetica').fontSize(scaledFont(9)).fillColor('#94a3b8').text(
-              'Sign inside the box',
-              frame.x,
-              signatureArea.y + signatureArea.height + scaledSpacing(6, 4),
-              {
-                width: frame.width,
+              doc.font('Helvetica-Oblique').fontSize(12).fillColor('#94a3b8');
+              doc.text('Sign inside the box', inputRect.x, inputRect.y + (inputRect.height - 12) / 2, {
+                width: inputRect.width,
                 align: 'center'
-              }
-            );
+              });
+            }
+            doc.font('Helvetica').fontSize(10).fillColor('#94a3b8');
+            doc.text('Sign inside the box', inputRect.x, inputRect.y + inputRect.height + 6, {
+              width: inputRect.width,
+              align: 'center'
+            });
             return;
           }
 
           if (field.type === 'photo') {
-            drawInputSurface(frame, { dashed: true });
-            const files = Array.isArray(value) ? value : [];
-            if (files.length > 0) {
-              const names = files
-                .map((file, index) => `${index + 1}. ${file.originalname || file.name || file.path || 'Attachment'}`)
-                .join('\n');
-              doc.font('Helvetica').fontSize(scaledFont(10)).fillColor('#1f2937').text(
-                names,
-                frame.x + bodyPadding,
-                frame.y + bodyPadding,
-                {
-                  width: frame.width - bodyPadding * 2,
-                  height: frame.height - bodyPadding * 2,
-                  lineBreak: true
+            drawInputSurface(inputRect, { dashed: true });
+            const fieldAttachments = attachmentsByField.get(key) || [];
+            if (fieldAttachments.length) {
+              const columns = fieldAttachments.length > 1 ? 2 : 1;
+              const rows = Math.ceil(fieldAttachments.length / columns);
+              const cellGap = 12;
+              const innerWidth = inputRect.width - INPUT_PADDING * 2 - cellGap * (columns - 1);
+              const innerHeight = inputRect.height - INPUT_PADDING * 2 - cellGap * (rows - 1);
+              const cellWidth = innerWidth / columns;
+              const cellHeight = innerHeight / rows;
+
+              fieldAttachments.forEach((asset, index) => {
+                const column = index % columns;
+                const row = Math.floor(index / columns);
+                const cellX = inputRect.x + INPUT_PADDING + column * (cellWidth + cellGap);
+                const cellY = inputRect.y + INPUT_PADDING + row * (cellHeight + cellGap);
+                const resolvedPath = resolveAssetPath(asset.diskPath || asset.path);
+
+                doc.save();
+                doc.lineWidth(1.2);
+                doc.strokeColor('#cbd5f5');
+                doc.rect(cellX, cellY, cellWidth, cellHeight).stroke();
+                if (resolvedPath && fs.existsSync(resolvedPath)) {
+                  try {
+                    doc.image(resolvedPath, cellX + 6, cellY + 6, {
+                      fit: [cellWidth - 12, cellHeight - 28],
+                      align: 'center',
+                      valign: 'center'
+                    });
+                  } catch (err) {
+                    console.error('Failed to embed photo:', err);
+                  }
                 }
-              );
-            } else {
-              doc.font('Helvetica-Oblique').fontSize(scaledFont(10)).fillColor('#94a3b8').text(
-                'No files uploaded',
-                frame.x + bodyPadding,
-                frame.y + (frame.height - scaledFont(10)) / 2,
-                {
-                  width: frame.width - bodyPadding * 2,
+                doc.font('Helvetica').fontSize(10).fillColor('#1f2937');
+                doc.text(asset.originalname || asset.name || 'Attachment', cellX + 6, cellY + cellHeight - 18, {
+                  width: cellWidth - 12,
                   align: 'center'
-                }
-              );
+                });
+                doc.restore();
+              });
+              return;
+            }
+
+            if (Array.isArray(rawValue) && rawValue.length) {
+              const names = rawValue
+                .map((file, index) => `${index + 1}. ${file.name || file.originalname || 'Attachment'}`)
+                .join('\n');
+              doc.font('Helvetica').fontSize(12).fillColor('#1f2937');
+              doc.text(names, inputRect.x + INPUT_PADDING, inputRect.y + INPUT_PADDING, {
+                width: inputRect.width - INPUT_PADDING * 2,
+                height: inputRect.height - INPUT_PADDING * 2,
+                lineBreak: true
+              });
+            } else {
+              doc.font('Helvetica-Oblique').fontSize(12).fillColor('#94a3b8');
+              doc.text('Drop photos here', inputRect.x, inputRect.y + (inputRect.height - 12) / 2, {
+                width: inputRect.width,
+                align: 'center'
+              });
             }
             return;
           }
 
-          // Text & Paragraph fields
-          drawInputSurface(frame);
-          const hasValue = value !== undefined && value !== null && String(value).trim() !== '';
-          const placeholderText = field.placeholder || '';
-          doc.font('Helvetica').fontSize(scaledFont(field.type === 'textarea' ? 11 : 12)).fillColor(
-            hasValue ? '#0f172a' : '#94a3b8'
-          ).text(
-            hasValue ? safeText(value) : placeholderText,
-            frame.x + bodyPadding,
-            frame.y + bodyPadding,
-            {
-              width: frame.width - bodyPadding * 2,
-              height: frame.height - bodyPadding * 2,
-              lineBreak: true
-            }
-          );
+          drawInputSurface(inputRect);
+          const hasValue = rawValue !== undefined && rawValue !== null && String(rawValue).trim() !== '';
+          const placeholder = field.placeholder || '';
+          doc.font('Helvetica')
+            .fontSize(field.type === 'textarea' ? 14 : 16)
+            .fillColor(hasValue ? '#0f172a' : '#94a3b8')
+            .text(
+              hasValue ? safeText(rawValue) : placeholder,
+              inputRect.x + INPUT_PADDING,
+              inputRect.y + INPUT_PADDING,
+              {
+                width: inputRect.width - INPUT_PADDING * 2,
+                height: inputRect.height - INPUT_PADDING * 2,
+                lineBreak: true
+              }
+            );
         });
 
-        let footerCursor = originY + canvasHeightPt + scaledSpacing(40, 32);
-        const footerWidth = doc.page.width - PDF_MARGIN_PT * 2;
+        doc.restore();
 
-        Object.entries(formData || {})
+        const canvasBottom = originY + canvasHeightPt;
+        const footerWidth = doc.page.width - PDF_MARGIN_PT * 2;
+        let footerCursor = canvasBottom + 24;
+
+        Object.entries(serialisedData || {})
           .filter(([key]) => !renderedKeys.has(key) && !String(key).startsWith('signature_'))
           .forEach(([key, value], index) => {
             const label = key
               .replace(/_/g, ' ')
               .replace(/\b\w/g, (letter) => letter.toUpperCase());
             if (index === 0) {
-              doc.font('Helvetica-Bold').fontSize(scaledFont(12)).fillColor('#1e1b4b');
+              doc.font('Helvetica-Bold').fontSize(12).fillColor('#1e1b4b');
               doc.text('Additional data', PDF_MARGIN_PT, footerCursor, {
                 width: footerWidth
               });
-              footerCursor = doc.y + scaledSpacing(8, 6);
+              footerCursor = doc.y + 8;
             }
-            doc.font('Helvetica').fontSize(scaledFont(10)).fillColor('#334155');
+            doc.font('Helvetica').fontSize(10).fillColor('#334155');
             doc.text(`${label}: ${safeText(value)}`, PDF_MARGIN_PT, footerCursor, {
               width: footerWidth
             });
-            footerCursor = doc.y + scaledSpacing(4, 4);
+            footerCursor = doc.y + 4;
           });
 
-        doc.font('Helvetica').fontSize(scaledFont(9)).fillColor('#94a3b8').text(
-          `Generated on ${new Date().toLocaleString()}`,
-          PDF_MARGIN_PT,
-          doc.page.height - PDF_MARGIN_PT - scaledSpacing(14, 10),
-          { width: footerWidth, align: 'right' }
-        );
+        doc.font('Helvetica')
+          .fontSize(9)
+          .fillColor('#94a3b8')
+          .text(
+            `Generated on ${new Date().toLocaleString()}`,
+            PDF_MARGIN_PT,
+            doc.page.height - PDF_MARGIN_PT - 12,
+            { width: footerWidth, align: 'right' }
+          );
 
         doc.end();
 

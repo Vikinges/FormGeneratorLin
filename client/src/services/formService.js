@@ -112,15 +112,15 @@ class FormService {
     }
   }
 
-  async submitFilledForm(id, data, files) {
+  async submitFilledForm(id, data, files = []) {
     const formData = new FormData();
     formData.append('data', JSON.stringify(data));
-    
-    if (files && files.length > 0) {
-      files.forEach(file => {
-        formData.append(file.fieldname || 'files', file);
-      });
-    }
+
+    files.forEach(({ fieldId, file }) => {
+      if (file) {
+        formData.append(fieldId, file);
+      }
+    });
 
     try {
       const response = await axios.post(

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import TextareaAutosize from 'react-textarea-autosize';
+import CanvasPreview from './CanvasPreview';
 import { formService } from '../services/formService';
 import './FormViewer.css';
 
@@ -249,7 +249,26 @@ function FormViewer() {
       event.preventDefault();
       setSubmitting(true);
 
-      const submitResult = await formService.submitFilledForm(id, formData, []);
+      const serialisedData = {};
+      const filesPayload = [];
+
+      Object.entries(formData || {}).forEach(([fieldId, value]) => {
+        if (Array.isArray(value) && value.length && value[0] instanceof File) {
+          serialisedData[fieldId] = value.map((file) => ({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            lastModified: file.lastModified
+          }));
+          value.forEach((file) => {
+            filesPayload.push({ fieldId, file });
+          });
+        } else {
+          serialisedData[fieldId] = value;
+        }
+      });
+
+      const submitResult = await formService.submitFilledForm(id, serialisedData, filesPayload);
 
       if (submitResult.ok) {
         const signResult = await formService.signForm(
@@ -272,6 +291,30 @@ function FormViewer() {
     [formData, id, navigate, signatures]
   );
 
+  const fields = useMemo(() => {
+    if (!form?.content) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(form.content);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  }, [form]);
+
+  const handleFocusField = useCallback((fieldId) => {
+    fetchSuggestions(fieldId, formData[fieldId] || '');
+  }, [fetchSuggestions, formData]);
+
+  const handleCheckboxToggle = useCallback((fieldId, checked) => {
+    handleInputChange(fieldId, checked);
+  }, [handleInputChange]);
+
+  const handleFilesChange = useCallback((fieldId, files) => {
+    handleInputChange(fieldId, files);
+  }, [handleInputChange]);
+
   if (loading) {
     return (
       <div
@@ -291,8 +334,6 @@ function FormViewer() {
     return <div>Form not found</div>;
   }
 
-  const fields = JSON.parse(form.content || '[]');
-
   return (
     <div className="form-viewer">
       <div className="form-viewer-header">
@@ -300,108 +341,20 @@ function FormViewer() {
         {form.description && <p>{form.description}</p>}
       </div>
 
-      <form onSubmit={handleSubmit} className="form-content">
-        {fields.map((field) => (
-          <div key={field.id} className="form-field">
-            <label>
-              {field.label}
-              {field.required && <span className="required"> *</span>}
-            </label>
-
-            {field.type === 'text' && (
-              <>
-                <input
-                  type="text"
-                  value={formData[field.id] || ''}
-                  onChange={(e) => handleTextInput(field.id, e.target.value)}
-                  onFocus={() => fetchSuggestions(field.id, formData[field.id] || '')}
-                  placeholder={field.placeholder}
-                  className="input"
-                  required={field.required}
-                  list={`suggestions-${field.id}`}
-                  autoComplete="off"
-                />
-                <datalist id={`suggestions-${field.id}`}>
-                  {(suggestions[field.id] || []).map((option) => (
-                    <option key={`${field.id}-${option}`} value={option} />
-                  ))}
-                </datalist>
-              </>
-            )}
-
-            {field.type === 'textarea' && (
-              <div className="textarea-field">
-                <TextareaAutosize
-                  value={formData[field.id] || ''}
-                  onChange={(event) => handleTextInput(field.id, event.target.value)}
-                  onFocus={() => fetchSuggestions(field.id, formData[field.id] || '')}
-                  placeholder={field.placeholder}
-                  className="textarea-input"
-                  required={field.required}
-                  minRows={3}
-                />
-                {(suggestions[field.id] || []).length > 0 && (
-                  <ul className="suggestion-list" role="listbox">
-                    {(suggestions[field.id] || []).map((option) => (
-                      <li key={`${field.id}-${option}`}>
-                        <button
-                          type="button"
-                          className="suggestion-item"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => handleSuggestionPick(field.id, option)}
-                        >
-                          {option}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {field.type === 'checkbox' && (
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={!!formData[field.id]}
-                  onChange={(e) => handleInputChange(field.id, e.target.checked)}
-                />
-                <span>{field.checkboxLabel || 'Yes'}</span>
-              </label>
-            )}
-
-            {field.type === 'photo' && (
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="input"
-                onChange={(e) => {
-                  const files = Array.from(e.target.files || []);
-                  handleInputChange(field.id, files);
-                }}
-              />
-            )}
-
-            {field.type === 'signature' && (
-              <div className="signature-field">
-                <canvas
-                  ref={(canvas) => registerSignatureCanvas(field.id, canvas)}
-                  width={400}
-                  height={150}
-                  className="signature-canvas"
-                />
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => clearSignature(field.id)}
-                >
-                  Clear
-                </button>
-              </div>
-            )}
-          </div>
-        ))}
+      <form onSubmit={handleSubmit} className="form-preview-form">
+        <CanvasPreview
+          fields={fields}
+          values={formData}
+          suggestions={suggestions}
+          signatures={signatures}
+          onTextInput={handleTextInput}
+          onFocusField={handleFocusField}
+          onSuggestionPick={handleSuggestionPick}
+          onCheckboxToggle={handleCheckboxToggle}
+          onFileChange={handleFilesChange}
+          registerSignatureCanvas={registerSignatureCanvas}
+          clearSignature={clearSignature}
+        />
 
         <div className="form-actions">
           <button
@@ -412,7 +365,7 @@ function FormViewer() {
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={submitting}>
-            {submitting ? 'Sending…' : '✍️ Sign & submit'}
+            {submitting ? 'Sending...' : 'Sign & submit'}
           </button>
         </div>
       </form>

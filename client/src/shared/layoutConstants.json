@@ -1,0 +1,28 @@
+{
+  "canvas": {
+    "width": 795,
+    "height": 1125
+  },
+  "card": {
+    "padding": 18,
+    "radius": 18,
+    "headerHeight": 42,
+    "minBodyHeight": 64
+  },
+  "input": {
+    "radius": 12,
+    "padding": 14,
+    "minHeight": 44
+  },
+  "signature": {
+    "minDrawingHeight": 96,
+    "footerHeight": 34
+  },
+  "photo": {
+    "minHeight": 120,
+    "thumbnailGap": 12
+  },
+  "checkbox": {
+    "boxSize": 24
+  }
+}
